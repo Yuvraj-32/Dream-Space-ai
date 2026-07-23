@@ -5,14 +5,19 @@ Runs the pretrained CubiCasa5k segmentation model (CPU) and returns the SAME
 JSON schema as detector.detect_floor_plan, so the API / frontend / 3D stages
 need no changes.
 
-Strategy:
-  - The model gives clean, furniture-free WALL / DOOR / WINDOW / ROOM pixel
-    masks.
-  - Walls: reuse detector.py's proven line-vectorization on the clean wall
-    mask (it finally has clean input to work with) → segments in legacy form.
-  - Rooms: connected components of the room-class mask → polygons, labeled by
-    the model's room type (a capability the classical path never had).
-  - Openings: door/window blobs → centroid + width, attached to nearest wall.
+Strategy (primary path — junction-based):
+  - Rotation-averaged inference (4×90°) → full 44-channel prediction.
+  - CubiCasa's native post-processor (get_polygons) reads the model's wall-
+    JUNCTION heatmaps and builds walls as a graph between those junctions, so
+    walls share junctions and are gap-free by construction. Rooms come out as
+    class-merged polygons; openings are snapped onto their host walls.
+  - Out-of-building rooms (logos/legends) are dropped via the wall envelope.
+
+Fallback path (skeleton): if post-processing fails or finds no walls, the wall
+mask is skeletonized and vectorized (less accurate, but robust).
+
+Both paths emit the SAME JSON schema as detector.detect_floor_plan (plus a
+per-room `type` label), so the API / frontend / 3D stages need no changes.
 
 Model is loaded once (module singleton). Import is lazy-friendly: if torch or
 the weights are missing, load_ml_model() raises and the API falls back to the
@@ -44,7 +49,6 @@ _ICON_OFFSET = 21 + 12
 _WALL_CLASS = 2          # in the room channel group
 _ICON_WINDOW = 1         # in the icon channel group
 _ICON_DOOR = 2
-_ICON_CLOSET = 3         # built-in closet / wardrobe
 
 # Human-readable room labels (rooms channel), bonus over the classical path.
 _ROOM_NAMES = [
@@ -92,6 +96,213 @@ def load_ml_model():
     model.eval()
     _model = model
     return _model
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  PRIMARY PATH — junction-based vectorization (CubiCasa post-processing)
+#  The model predicts wall-junction heatmaps; CubiCasa's post-processor
+#  builds walls as a graph between those junctions, so walls share
+#  junctions and are gap-free by construction. Rotation-averaged inference
+#  (4×90°) is the model's best-quality mode.
+# ══════════════════════════════════════════════════════════════════════
+
+_rotate = None
+_scipy_patched = False
+
+
+def _patch_scipy_mode():
+    """CubiCasa's 2019 post-processing calls stats.mode(x).mode[0]; modern
+    scipy returns a scalar mode. Restore the old array behavior."""
+    global _scipy_patched
+    if _scipy_patched:
+        return
+    import scipy.stats as sps
+    _orig = sps.mode
+    def _compat(a, *args, **kwargs):
+        kwargs.setdefault("keepdims", True)
+        return _orig(a, *args, **kwargs)
+    sps.mode = _compat
+    _scipy_patched = True
+
+
+class _RotateNTurns:
+    """Vendored from CubiCasa5k (augmentations.py) — rotates the image tensor
+    and permutes the directional heatmap channels for test-time rotation
+    averaging. Vendored to avoid the training-only loaders dependency chain."""
+    def rot_tensor(self, t, n):
+        if n == 1: t = t.flip(2).transpose(3, 2)
+        elif n == -1: t = t.transpose(3, 2).flip(2)
+        elif n == 2: t = t.flip(2).flip(3)
+        return t
+
+    def rot_points(self, t, n):
+        s = t.clone().detach()
+        if n == 1:
+            s[:, 1]=t[:, 0]; s[:, 2]=t[:, 1]; s[:, 3]=t[:, 2]; s[:, 0]=t[:, 3]
+            s[:, 5]=t[:, 4]; s[:, 6]=t[:, 5]; s[:, 7]=t[:, 6]; s[:, 4]=t[:, 7]
+            s[:, 9]=t[:, 8]; s[:, 10]=t[:, 9]; s[:, 11]=t[:, 10]; s[:, 8]=t[:, 11]
+            s[:, 15]=t[:, 13]; s[:, 16]=t[:, 14]; s[:, 14]=t[:, 15]; s[:, 13]=t[:, 16]
+            s[:, 18]=t[:, 17]; s[:, 20]=t[:, 18]; s[:, 17]=t[:, 19]; s[:, 19]=t[:, 20]
+        elif n == -1:
+            s[:, 3]=t[:, 0]; s[:, 0]=t[:, 1]; s[:, 1]=t[:, 2]; s[:, 2]=t[:, 3]
+            s[:, 7]=t[:, 4]; s[:, 4]=t[:, 5]; s[:, 5]=t[:, 6]; s[:, 6]=t[:, 7]
+            s[:, 11]=t[:, 8]; s[:, 8]=t[:, 9]; s[:, 9]=t[:, 10]; s[:, 10]=t[:, 11]
+            s[:, 16]=t[:, 13]; s[:, 15]=t[:, 14]; s[:, 13]=t[:, 15]; s[:, 14]=t[:, 16]
+            s[:, 19]=t[:, 17]; s[:, 17]=t[:, 18]; s[:, 20]=t[:, 19]; s[:, 18]=t[:, 20]
+        elif n == 2:
+            s[:, 2]=t[:, 0]; s[:, 3]=t[:, 1]; s[:, 0]=t[:, 2]; s[:, 4]=t[:, 3]
+            s[:, 6]=t[:, 4]; s[:, 7]=t[:, 5]; s[:, 4]=t[:, 6]; s[:, 5]=t[:, 7]
+            s[:, 10]=t[:, 8]; s[:, 11]=t[:, 9]; s[:, 8]=t[:, 10]; s[:, 9]=t[:, 11]
+            s[:, 14]=t[:, 13]; s[:, 13]=t[:, 14]; s[:, 16]=t[:, 15]; s[:, 15]=t[:, 16]
+            s[:, 20]=t[:, 17]; s[:, 19]=t[:, 18]; s[:, 18]=t[:, 19]; s[:, 17]=t[:, 20]
+        return s
+
+    def __call__(self, x, kind, n):
+        return self.rot_tensor(x, n) if kind == "tensor" else self.rot_points(x, n)
+
+
+def _predict_full(img_bgr, max_dim=1024):
+    """Rotation-averaged forward pass → full (1,44,H,W) prediction tensor and
+    the working size (nw, nh)."""
+    import torch
+    import torch.nn.functional as F
+    global _rotate
+    if _rotate is None:
+        _rotate = _RotateNTurns()
+
+    model = load_ml_model()
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, max_dim / max(h, w))
+    nw = max(32, int(round(w * scale / 32)) * 32)
+    nh = max(32, int(round(h * scale / 32)) * 32)
+    rgb = cv2.cvtColor(cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_AREA),
+                       cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    rgb = rgb * 2.0 - 1.0
+    image = torch.from_numpy(np.moveaxis(rgb, -1, 0))[None]
+
+    rotations = [(0, 0), (1, -1), (2, 2), (-1, 1)]
+    preds = torch.zeros([len(rotations), _N_CLASSES, nh, nw])
+    with torch.no_grad():
+        for i, (fwd, back) in enumerate(rotations):
+            r = _rotate(image, "tensor", fwd)
+            p = model(r)
+            p = _rotate(p, "tensor", back)
+            p = _rotate(p, "points", back)
+            p = F.interpolate(p, size=(nh, nw), mode="bilinear", align_corners=True)
+            preds[i] = p[0]
+    return torch.mean(preds, 0, True), (nw, nh)
+
+
+def _wall_centerline(p):
+    """4-corner wall polygon → (x1,y1,x2,y2, thickness) centerline."""
+    xs = p[:, 0].astype(float); ys = p[:, 1].astype(float)
+    if (xs.max() - xs.min()) >= (ys.max() - ys.min()):
+        y = int(round((ys.min() + ys.max()) / 2))
+        return int(xs.min()), y, int(xs.max()), y, float(ys.max() - ys.min())
+    x = int(round((xs.min() + xs.max()) / 2))
+    return x, int(ys.min()), x, int(ys.max()), float(xs.max() - xs.min())
+
+
+def _iter_shapely(g):
+    if g.geom_type == "Polygon":
+        yield g
+    elif hasattr(g, "geoms"):
+        for sub in g.geoms:
+            if sub.geom_type == "Polygon":
+                yield sub
+
+
+def _postprocess(prediction, nw, nh):
+    """Run CubiCasa's junction post-processing → (walls, rooms, openings) as
+    legacy-schema dicts at the working resolution. Raises on failure so the
+    caller can fall back to the skeleton path."""
+    _patch_scipy_mode()
+    if _CUBI_DIR not in sys.path:
+        sys.path.insert(0, _CUBI_DIR)
+    from floortrans.post_prosessing import split_prediction, get_polygons
+
+    heatmaps, rooms_seg, icons_seg = split_prediction(prediction, (nh, nw), [21, 12, 11])
+    polygons, types, room_polys, room_types = get_polygons(
+        (heatmaps, rooms_seg, icons_seg), 0.2, [_ICON_WINDOW, _ICON_DOOR]
+    )
+
+    # ── Walls (centerlines + thickness), classified main/partition ──
+    raw = [(_wall_centerline(polygons[i]), t.get("class"))
+           for i, t in enumerate(types) if t["type"] == "wall"]
+    raw = [r for r in raw if _len(r[0][0], r[0][1], r[0][2], r[0][3]) > 3]
+    thicknesses = [r[0][4] for r in raw]
+    seglist = [(r[0][0], r[0][1], r[0][2], r[0][3]) for r in raw]
+    _, wall_types = _classify_wall_types(seglist, thicknesses) if seglist else ([], [])
+    walls = []
+    for idx, (seg, _cls) in enumerate(raw):
+        x1, y1, x2, y2, th = seg
+        walls.append({
+            "id": f"wall_{idx}",
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+            "length": round(_len(x1, y1, x2, y2), 1),
+            "angle": round(_angle_deg(x1, y1, x2, y2), 1),
+            "wall_type": wall_types[idx] if idx < len(wall_types) else "partition",
+            "thickness": round(th, 2),
+        })
+
+    # ── Building envelope (from wall endpoints) for out-of-building filter ──
+    if walls:
+        bx = [w["x1"] for w in walls] + [w["x2"] for w in walls]
+        by = [w["y1"] for w in walls] + [w["y2"] for w in walls]
+        env = (min(bx), min(by), max(bx), max(by))
+    else:
+        env = (0, 0, nw, nh)
+
+    # ── Rooms (shapely polygons → dicts; drop outdoor + out-of-envelope) ──
+    rooms = []
+    rid = 0
+    for rp, rt in zip(room_polys, room_types):
+        cls = rt.get("class", 0)
+        if cls in (0, 1):        # background / outdoor
+            continue
+        name = _ROOM_NAMES[cls] if cls < len(_ROOM_NAMES) else "room"
+        for poly in _iter_shapely(rp):
+            xy = np.array(poly.exterior.coords, dtype=np.int32)
+            if len(xy) < 3:
+                continue
+            x, y, ww, hh = cv2.boundingRect(xy)
+            ccx, ccy = x + ww / 2, y + hh / 2
+            # Reject rooms whose centroid falls outside the wall envelope.
+            if not (env[0] - 10 <= ccx <= env[2] + 10 and env[1] - 10 <= ccy <= env[3] + 10):
+                continue
+            area = float(cv2.contourArea(xy))
+            if area < nw * nh * 0.0015:
+                continue
+            approx = cv2.approxPolyDP(xy.reshape(-1, 1, 2), 0.01 * cv2.arcLength(xy, True), True)
+            rooms.append({
+                "id": f"room_{rid}",
+                "type": name,
+                "area": round(area, 1),
+                "bbox": {"x": int(x), "y": int(y), "w": int(ww), "h": int(hh)},
+                "centroid": {"x": int(round(ccx)), "y": int(round(ccy))},
+                "polygon": [[int(pt[0][0]), int(pt[0][1])] for pt in approx],
+            })
+            rid += 1
+
+    # ── Openings (icon polygons: window=1, door=2) → nearest wall ──
+    openings = []
+    oid = 0
+    for i, t in enumerate(types):
+        if t["type"] != "icon" or int(t.get("class", -1)) not in (_ICON_WINDOW, _ICON_DOOR):
+            continue
+        p = polygons[i]
+        cx, cy = int(p[:, 0].mean()), int(p[:, 1].mean())
+        w_px = float(max(p[:, 0].max() - p[:, 0].min(), p[:, 1].max() - p[:, 1].min()))
+        openings.append({
+            "id": f"opening_{oid}",
+            "wall_id": _nearest_wall_id(cx, cy, walls),
+            "x": cx, "y": cy,
+            "width_px": w_px,
+            "type": "door" if int(t["class"]) == _ICON_DOOR else "window",
+        })
+        oid += 1
+
+    return walls, rooms, openings
 
 
 def _predict_masks(img_bgr, max_dim=1024):
@@ -202,9 +413,17 @@ def _walls_from_mask(wall_mask, w, h):
     snapped = _snap_endpoints(merged, snap_radius=12)
     snapped = _final_angle_snap(snapped, thresh=12)
     snapped = _coaxial_merge(snapped, axis_tolerance=8, gap_tolerance=25)
-    # Close T-junction / corner gaps: extend endpoints to meet perpendicular walls.
-    snapped = _heal_junctions(snapped, tol=max(12, min(w, h) // 55))
-    snapped = _snap_endpoints(snapped, snap_radius=10)
+    # Close T-junction / corner gaps: extend endpoints to meet perpendicular
+    # walls. Two passes at a slightly wider tolerance catch junctions that only
+    # line up after a first round of extension.
+    heal_tol = max(14, min(w, h) // 40)
+    snapped = _heal_junctions(snapped, tol=heal_tol)
+    snapped = _heal_junctions(snapped, tol=heal_tol)
+    # Bridge collinear wall pieces separated by a gap (a wall broken into two
+    # segments on the same line), then re-heal perpendicular junctions.
+    snapped = _coaxial_merge(snapped, axis_tolerance=10, gap_tolerance=heal_tol * 2)
+    snapped = _heal_junctions(snapped, tol=heal_tol)
+    snapped = _snap_endpoints(snapped, snap_radius=12)
 
     dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     widths = _get_wall_widths(snapped, dist)
@@ -306,42 +525,42 @@ def _openings_from_masks(icons_pred, walls, w, h):
     return openings
 
 
-def _fixtures_from_pred(icons_pred, w, h):
-    """Built-in fixtures (currently closets/wardrobes) from the icon channel.
-    CubiCasa labels a built-in closet as its own icon class; freestanding
-    furniture is NOT detected (and stays out of scope)."""
-    min_area = w * h * 0.0006
-    mask = (icons_pred == _ICON_CLOSET).astype(np.uint8)
-    n, labels, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    out = []
-    for lb in range(1, n):
-        area = float(stats[lb, cv2.CC_STAT_AREA])
-        if area < min_area:
+def _reclassify_wardrobes(rooms, openings, w, h):
+    """Retag small, windowless rooms entered by 2+ doors as walk-in wardrobes.
+
+    On a plan, a walk-in wardrobe is a small enclosed space with two folding-
+    door symbols ('v v') and no window — CubiCasa detects it as a generic
+    (undefined/storage) room. Size + door/window counts separate it cleanly
+    from a small bathroom or store (which have a single door), so those keep
+    their type.
+    """
+    area_cap = w * h * 0.025          # wardrobes are small
+    margin = max(10, min(w, h) // 40)  # opening-to-room proximity
+    doors = [o for o in openings if o["type"] == "door"]
+    wins = [o for o in openings if o["type"] == "window"]
+
+    def count_near(pts, b):
+        return sum(
+            1 for o in pts
+            if (b["x"] - margin) <= o["x"] <= (b["x"] + b["w"] + margin)
+            and (b["y"] - margin) <= o["y"] <= (b["y"] + b["h"] + margin)
+        )
+
+    for rm in rooms:
+        if rm["type"] not in ("undefined", "storage", "other"):
             continue
-        x = int(stats[lb, cv2.CC_STAT_LEFT]); y = int(stats[lb, cv2.CC_STAT_TOP])
-        rw = int(stats[lb, cv2.CC_STAT_WIDTH]); rh = int(stats[lb, cv2.CC_STAT_HEIGHT])
-        m = (labels == lb).astype(np.uint8) * 255
-        cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        poly = []
-        if cnts:
-            cnt = max(cnts, key=cv2.contourArea)
-            ap = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
-            poly = [[int(p[0][0]), int(p[0][1])] for p in ap]
-        out.append({
-            "id": f"fixture_{lb}",
-            "type": "closet",
-            "area": round(area, 1),
-            "bbox": {"x": x, "y": y, "w": rw, "h": rh},
-            "centroid": {"x": int(cents[lb][0]), "y": int(cents[lb][1])},
-            "polygon": poly,
-        })
-    return out
+        if rm["area"] > area_cap:
+            continue
+        b = rm["bbox"]
+        if count_near(doors, b) >= 2 and count_near(wins, b) == 0:
+            rm["type"] = "wardrobe"
+    return rooms
 
 
-def _scale_results(walls, rooms, openings, fixtures, inv):
+def _scale_results(walls, rooms, openings, inv):
     """Scale all coordinates from working resolution back to original image."""
     if inv == 1.0:
-        return walls, rooms, openings, fixtures
+        return walls, rooms, openings
     for wl in walls:
         wl["x1"] = int(wl["x1"] * inv); wl["y1"] = int(wl["y1"] * inv)
         wl["x2"] = int(wl["x2"] * inv); wl["y2"] = int(wl["y2"] * inv)
@@ -355,41 +574,51 @@ def _scale_results(walls, rooms, openings, fixtures, inv):
     for op in openings:
         op["x"] = int(op["x"] * inv); op["y"] = int(op["y"] * inv)
         op["width_px"] = round(op["width_px"] * inv, 1)
-    for fx in fixtures:
-        fx["area"] = round(fx["area"] * inv * inv, 1)
-        fx["bbox"] = {k: int(v * inv) for k, v in fx["bbox"].items()}
-        fx["centroid"] = {k: int(v * inv) for k, v in fx["centroid"].items()}
-        fx["polygon"] = [[int(x * inv), int(y * inv)] for x, y in fx["polygon"]]
-    return walls, rooms, openings, fixtures
+    return walls, rooms, openings
 
 
-def detect_floor_plan_ml(image_path: str) -> dict[str, Any]:
-    """CubiCasa-based detection. Returns the same schema as
-    detector.detect_floor_plan (plus a per-room `type` label)."""
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Cannot read image: {image_path}")
-    orig_h, orig_w = img.shape[:2]
-
+def _detect_skeleton(img):
+    """Fallback: mask-based skeleton vectorization (used if junction
+    post-processing fails or returns nothing)."""
     rooms_pred, icons_pred, (pw, ph) = _predict_masks(img)
-    inv = orig_w / pw  # uniform scale (aspect preserved by multiple-of-32 rounding)
-
-    # Vectorize walls from the wall class UNIONED with door/window pixels.
-    # CubiCasa labels a window/door as its own class, leaving a gap in the raw
-    # wall mask at every opening — which fragments or drops wall segments near
-    # windows. An opening is still part of the wall line (just a cut in it), so
-    # bridging the gaps yields continuous walls. Openings are still detected
-    # separately below from the icon channels.
     opening_pixels = np.isin(icons_pred, [_ICON_WINDOW, _ICON_DOOR])
     wall_mask = ((rooms_pred == _WALL_CLASS) | opening_pixels).astype(np.uint8)
     walls = _walls_from_mask(wall_mask, pw, ph)
     rooms = _rooms_from_pred(rooms_pred, pw, ph)
     openings = _openings_from_masks(icons_pred, walls, pw, ph)
-    fixtures = _fixtures_from_pred(icons_pred, pw, ph)
-    walls, rooms, openings, fixtures = _scale_results(walls, rooms, openings, fixtures, inv)
+    return walls, rooms, openings, pw, ph
+
+
+def detect_floor_plan_ml(image_path: str) -> dict[str, Any]:
+    """CubiCasa-based detection. Returns the same schema as
+    detector.detect_floor_plan (plus a per-room `type` label).
+
+    Primary path uses the model's wall-junction heatmaps (get_polygons) for
+    topologically-connected, gap-free walls. Falls back to the skeleton
+    vectorizer if post-processing fails or finds no walls.
+    """
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError(f"Cannot read image: {image_path}")
+    orig_h, orig_w = img.shape[:2]
+
+    method = "junction"
+    try:
+        prediction, (pw, ph) = _predict_full(img)
+        walls, rooms, openings = _postprocess(prediction, pw, ph)
+        if not walls:
+            raise ValueError("junction post-processing found no walls")
+    except Exception as exc:
+        method = f"skeleton_fallback ({type(exc).__name__})"
+        walls, rooms, openings, pw, ph = _detect_skeleton(img)
+
+    inv = orig_w / pw  # aspect preserved by multiple-of-32 rounding
+    rooms = _reclassify_wardrobes(rooms, openings, pw, ph)
+    walls, rooms, openings = _scale_results(walls, rooms, openings, inv)
 
     stats = {
         "engine": "ml_cubicasa",
+        "method": method,
         "image_size": {"width": orig_w, "height": orig_h},
         "processing_size": {"width": pw, "height": ph},
         "walls_final": len(walls),
@@ -397,14 +626,13 @@ def detect_floor_plan_ml(image_path: str) -> dict[str, Any]:
         "openings_detected": len(openings),
         "doors": sum(1 for o in openings if o["type"] == "door"),
         "windows": sum(1 for o in openings if o["type"] == "window"),
-        "fixtures_detected": len(fixtures),
+        "wardrobes": sum(1 for r in rooms if r["type"] == "wardrobe"),
     }
     return {
         "image_size": {"width": orig_w, "height": orig_h},
         "walls": walls,
         "rooms": rooms,
         "openings": openings,
-        "fixtures": fixtures,
         "door_arcs": [],
         "stats": stats,
     }

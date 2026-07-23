@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Grid, Text, PointerLockControls, Edges } from '@react-three/drei'
+import { OrbitControls, Grid, Text, PointerLockControls } from '@react-three/drei'
 import * as THREE from 'three'
 
 // Suppress internal react-three-fiber / Three.js deprecation warnings
@@ -150,19 +150,28 @@ function Walls3D({ walls, openings, cx, cy, scale, onSelectWall, selectedSurface
   const meshes = []
 
   walls.forEach((wall) => {
-    const p1x = (wall.x1 - cx) * scale
-    const p1z = (wall.y1 - cy) * scale
+    const rawP1x = (wall.x1 - cx) * scale
+    const rawP1z = (wall.y1 - cy) * scale
     const p2x = (wall.x2 - cx) * scale
     const p2z = (wall.y2 - cy) * scale
 
-    const dx = p2x - p1x
-    const dz = p2z - p1z
-    const length = Math.hypot(dx, dz)
-    if (length < 0.05) return
+    const dx = p2x - rawP1x
+    const dz = p2z - rawP1z
+    const rawLen = Math.hypot(dx, dz)
+    if (rawLen < 0.05) return
 
-    const ux = dx / length
-    const uz = dz / length
+    const ux = dx / rawLen
+    const uz = dz / rawLen
     const angle = Math.atan2(dz, dx)
+
+    // Extend both ends by half the wall thickness so perpendicular walls
+    // overlap at junctions and fill the corner square (otherwise thin
+    // center-line boxes meet at a point and leave a visible gap). Openings
+    // are measured from p1x below, so shifting the start keeps them aligned.
+    const ext = wall_thickness / 2
+    const p1x = rawP1x - ux * ext
+    const p1z = rawP1z - uz * ext
+    const length = rawLen + 2 * ext
 
     const isSelected = selectedSurface?.type === 'wall' && selectedSurface?.id === wall.id
     const custom = surfaceCustomizations[wall.id] || {}
@@ -658,29 +667,6 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
   return null
 }
 
-/* ─── Built-in Fixtures (closets / wardrobes) ─────────────────── */
-function Fixtures3D({ fixtures, cx, cy, scale }) {
-  if (!fixtures || fixtures.length === 0) return null
-  const H = 2.05 // wardrobe height (m)
-  return (
-    <group>
-      {fixtures.map(fx => {
-        const w = Math.max(0.25, fx.bbox.w * scale)
-        const d = Math.max(0.25, fx.bbox.h * scale)
-        const px = (fx.centroid.x - cx) * scale
-        const pz = (fx.centroid.y - cy) * scale
-        return (
-          <mesh key={fx.id} position={[px, H / 2, pz]} castShadow receiveShadow>
-            <boxGeometry args={[w, H, d]} />
-            <meshStandardMaterial color="#7a5c3e" roughness={0.72} metalness={0.06} />
-            <Edges threshold={15} color="#3a2c1e" />
-          </mesh>
-        )
-      })}
-    </group>
-  )
-}
-
 /* ─── Main Canvas Wrapper ────────────────────────────────────── */
 export default function SceneCanvas({ uploadData, detection, confirmedLayout, showcaseMode, setShowcaseMode }) {
   const [isWalkthrough, setIsWalkthrough] = useState(false)
@@ -919,9 +905,6 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
                 clearcoat={surfaceCustomizations['floor']?.clearcoat !== undefined ? surfaceCustomizations['floor']?.clearcoat : 0}
               />
             </mesh>
-
-            {/* Built-in closets / wardrobes */}
-            <Fixtures3D fixtures={detection?.fixtures} cx={cx} cy={cy} scale={scale} />
 
             {/* Glowing selection highlight for Floor */}
             {selectedSurface?.type === 'floor' && !showcaseMode && (

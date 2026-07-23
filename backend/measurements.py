@@ -158,12 +158,6 @@ def measure_floor_plan(result: dict, image_path: str) -> dict:
                     room["label_dim_ft"] = tok["values_ft"]
                     break
 
-        for fx in result.get("fixtures", []):
-            b = fx["bbox"]
-            fx["computed_dim_ft"] = [
-                round(b["w"] * ft_per_px, 1), round(b["h"] * ft_per_px, 1)
-            ]
-
     if bbox and ft_per_px:
         result["measurements"] = {
             "scale_ft_per_px": round(ft_per_px, 5),

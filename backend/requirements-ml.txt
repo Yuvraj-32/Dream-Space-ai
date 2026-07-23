@@ -12,3 +12,4 @@ torch
 torchvision
 gdown          # one-time weights download from Google Drive
 easyocr        # reads dimension labels for real-world measurements (?measure=true)
+shapely        # CubiCasa junction post-processing (room polygon merging)
