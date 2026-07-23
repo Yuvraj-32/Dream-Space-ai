@@ -1,0 +1,14 @@
+# ML detection engine (CubiCasa5k) — optional, heavy deps.
+# Install ON TOP of requirements.txt to enable POST /detect?engine=ml.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-ml.txt --index-url https://download.pytorch.org/whl/cpu
+#
+# CPU-only wheels (no GPU needed). scikit-image (skeletonize) is already in
+# requirements.txt. Weights (~209MB) are downloaded separately into
+# backend/ml/weights/ — see ML_UPGRADE_PLAN.md. The classical engine needs
+# none of this; it stays the zero-dependency default.
+torch
+torchvision
+gdown          # one-time weights download from Google Drive
+easyocr        # reads dimension labels for real-world measurements (?measure=true)

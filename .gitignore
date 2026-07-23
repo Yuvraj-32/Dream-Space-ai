@@ -1,0 +1,36 @@
+# ── Python ──────────────────────────────────────────────
+backend/venv/
+**/__pycache__/
+*.pyc
+backend/.pytest_cache/
+.pytest_cache/
+
+# ── ML models & weights (large; downloaded separately) ──
+# CubiCasa5k pretrained weights (~209MB) — see backend/ML_UPGRADE_PLAN.md
+backend/ml/weights/
+# CubiCasa5k cloned repo (~131MB incl. backbone .pth) — re-clone per README
+backend/ml/CubiCasa5k/
+*.pkl
+*.pth
+
+# ── Runtime / user data ─────────────────────────────────
+backend/uploads/
+backend/*.png
+backend/tests/*.png
+
+# ── Frontend ────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Large media / scratch ───────────────────────────────
+*.mp4
+stderr.txt
+stdout.txt
+version.txt
+
+# ── Editor / OS ─────────────────────────────────────────
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db

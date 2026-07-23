@@ -1,0 +1,29 @@
+{
+  "image_size": {
+    "width": 1640,
+    "height": 1093
+  },
+  "counts": {
+    "walls": 17,
+    "rooms": 1,
+    "openings": 2,
+    "doors": 1,
+    "windows": 1,
+    "main_walls": 5,
+    "partition_walls": 12
+  },
+  "pipeline_stages": {
+    "raw_lines": 286,
+    "after_merge_p1": 100,
+    "after_merge_p2": 45,
+    "after_length_filter": 41,
+    "after_thickness": 41,
+    "after_endpoint_snap": 41,
+    "after_coaxial_merge": 38,
+    "after_isolated_removal": 33,
+    "diagonal_removed": 13,
+    "phantom_removed": 3,
+    "walls_final": 17,
+    "door_arcs_found": 13
+  }
+}
