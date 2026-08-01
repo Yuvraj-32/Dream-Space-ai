@@ -172,10 +172,15 @@ def _predict_full(img_bgr, max_dim=1024):
 
     model = load_ml_model()
     h, w = img_bgr.shape[:2]
-    scale = min(1.0, max_dim / max(h, w))
+    # Normalize toward the model's working resolution: UPSCALE small images up
+    # to it (a low-res plan fed at native size under-detects), DOWNSCALE large
+    # ones down to it. Experiments show ~1024px is the model's sweet spot —
+    # going higher over-detects (false walls/openings) and is much slower.
+    scale = max_dim / max(h, w)
     nw = max(32, int(round(w * scale / 32)) * 32)
     nh = max(32, int(round(h * scale / 32)) * 32)
-    rgb = cv2.cvtColor(cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_AREA),
+    interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
+    rgb = cv2.cvtColor(cv2.resize(img_bgr, (nw, nh), interpolation=interp),
                        cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     rgb = rgb * 2.0 - 1.0
     image = torch.from_numpy(np.moveaxis(rgb, -1, 0))[None]
@@ -313,12 +318,14 @@ def _predict_masks(img_bgr, max_dim=1024):
 
     model = load_ml_model()
     h, w = img_bgr.shape[:2]
-    scale = min(1.0, max_dim / max(h, w))
+    # Normalize toward the working resolution (upscale small, downscale large).
+    scale = max_dim / max(h, w)
     # Multiple of 32 for the hourglass down/up-sampling.
     nw = max(32, int(round(w * scale / 32)) * 32)
     nh = max(32, int(round(h * scale / 32)) * 32)
 
-    resized = cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(img_bgr, (nw, nh),
+                         interpolation=cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA)
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     rgb = rgb * 2.0 - 1.0
     tensor = torch.from_numpy(np.moveaxis(rgb, -1, 0))[None]

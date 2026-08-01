@@ -413,12 +413,24 @@ function Walls3D({ walls, openings, cx, cy, scale, onSelectWall, selectedSurface
   return <>{meshes}</>
 }
 
-function PlayerController({ walls, cx, cy, scale, rooms, active }) {
+function PlayerController({ walls, openings, cx, cy, scale, rooms, active }) {
   const { camera } = useThree()
   const keys = useRef({ w: false, a: false, s: false, d: false })
   const dir = useRef(new THREE.Vector3())
   const side = useRef(new THREE.Vector3())
   const move = useRef(new THREE.Vector3())
+
+  // Doorways in world space — collision is disabled within a doorway so the
+  // player can actually walk through doors (the wall segments are otherwise
+  // solid across the opening).
+  const doorways = useMemo(() => (openings || [])
+    .filter(o => (o.type === 'door'))
+    .map(o => ({
+      x: (o.x - cx) * scale,
+      z: (o.y - cy) * scale,
+      r: ((o.width_px || 90) * scale) / 2 + 0.25,   // half-width + margin
+    })), [openings, cx, cy, scale])
+  const inDoorway = (px, pz) => doorways.some(d => Math.hypot(px - d.x, pz - d.z) < d.r)
 
   // Position spawn point safely in the center of the first room
   useEffect(() => {
@@ -434,7 +446,10 @@ function PlayerController({ walls, cx, cy, scale, rooms, active }) {
       }
       camera.position.set(spawnX, 1.6, spawnZ)
       camera.lookAt(spawnX, 1.6, spawnZ - 1)
+      camera.fov = 72          // wide interior FOV to match a human's sense of space
+      camera.updateProjectionMatrix()
     }
+    return () => { camera.fov = 55; camera.updateProjectionMatrix() }
   }, [active, camera, rooms, cx, cy, scale])
 
   useEffect(() => {
@@ -478,19 +493,25 @@ function PlayerController({ walls, cx, cy, scale, rooms, active }) {
 
       let collisionX = false
       let collisionZ = false
-      const playerRadius = 0.35 // Collision envelope
+      const playerRadius = 0.24 // Collision envelope (small enough for doorways)
 
-      for (const w of walls) {
-        const ax = (w.x1 - cx) * scale
-        const az = (w.y1 - cy) * scale
-        const bx = (w.x2 - cx) * scale
-        const bz = (w.y2 - cy) * scale
+      // A candidate inside a doorway is always allowed (skip wall collision).
+      const freeX = inDoorway(nextX, camera.position.z)
+      const freeZ = inDoorway(camera.position.x, nextZ)
 
-        if (distToSegment(nextX, camera.position.z, ax, az, bx, bz) < playerRadius) {
-          collisionX = true
-        }
-        if (distToSegment(camera.position.x, nextZ, ax, az, bx, bz) < playerRadius) {
-          collisionZ = true
+      if (!freeX || !freeZ) {
+        for (const w of walls) {
+          const ax = (w.x1 - cx) * scale
+          const az = (w.y1 - cy) * scale
+          const bx = (w.x2 - cx) * scale
+          const bz = (w.y2 - cy) * scale
+
+          if (!freeX && distToSegment(nextX, camera.position.z, ax, az, bx, bz) < playerRadius) {
+            collisionX = true
+          }
+          if (!freeZ && distToSegment(camera.position.x, nextZ, ax, az, bx, bz) < playerRadius) {
+            collisionZ = true
+          }
         }
       }
 
@@ -549,11 +570,6 @@ function buildCinematicTour(detection, confirmedLayout, cx, cy, scale) {
     for (const d of doors) { const dd = d.distanceTo(p); if (dd < bd) { bd = dd; best = d } }
     return best
   }
-  const doorBetween = (a, b) => {
-    if (doors.length === 0) return null
-    const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
-    return nearestDoor(mid)
-  }
   const outward = (p) => new THREE.Vector3().subVectors(p, bc).setY(0).normalize()
 
   // Order rooms: start from the room furthest from centre (likely near an
@@ -571,32 +587,52 @@ function buildCinematicTour(detection, confirmedLayout, cx, cy, scale) {
     order.push(ni); used[ni] = true
   }
 
+  // ── Calm, constant-speed choreography ─────────────────────────
+  // For each room in order: come to its door → glide to the centre → slow
+  // 360° reveal → return to the door → move on to the next room's door.
+  // Durations scale with distance so the whole tour moves at one gentle pace.
+  const SPEED = 1.25          // metres / second — a slow, calm glide
+  const REVEAL_DUR = 6.5      // seconds for a full 360° room reveal
   const frames = []
+  let cursor = null
+  const travel = (target, lookAt, p0 = null) => {
+    const from = p0 || cursor
+    const dur = from ? Math.max(1.6, from.distanceTo(target) / SPEED) : 2.8
+    frames.push({ kind: 'travel', p0, p1: target.clone(), dur, lookAt: (lookAt || target).clone() })
+    cursor = target.clone()
+  }
+
+  const STEP = 2.0            // metres — a few steps into the hall after a room
+
   const first = R[order[0]]
-  const entryDoor = nearestDoor(first.center) || first.center.clone()
-  const entryOut = entryDoor.clone().add(outward(entryDoor).multiplyScalar(2.2))
-  entryOut.y = 4.5
-  // Drone-in entry.
-  frames.push({ kind: 'travel', p0: entryOut, p1: entryDoor.clone(), dur: 2.6, lookAt: first.center.clone() })
+  const entry0 = nearestDoor(first.center) || first.center.clone()
+  const droneOut = entry0.clone().add(outward(entry0).multiplyScalar(2.6))
+  droneOut.y = 3.6
+  // Drone-in: descend from just outside the entry door, looking into the room.
+  travel(entry0, first.center, droneOut)
 
   for (let k = 0; k < order.length; k++) {
     const room = R[order[k]]
-    if (k > 0) {
-      const prev = R[order[k - 1]].center
-      const door = doorBetween(prev, room.center)
-      if (door) frames.push({ kind: 'travel', p0: null, p1: door.clone(), dur: 1.8, lookAt: room.center.clone() })
-    }
-    frames.push({ kind: 'travel', p0: null, p1: room.center.clone(), dur: 1.8, lookAt: room.center.clone() })
-    frames.push({ kind: 'reveal', pos: room.center.clone(), dur: 5.0, name: room.name, dims: room.dims })
+    const door = nearestDoor(room.center) || room.center.clone()
+    if (k > 0) travel(door, room.center)      // hallway → this room's door
+    travel(room.center, room.center)          // door → room centre
+    frames.push({ kind: 'reveal', pos: room.center.clone(), dur: REVEAL_DUR, name: room.name, dims: room.dims })
+    cursor = room.center.clone()
+    // Leave: glide OUT through the door (the centre→ahead line passes through
+    // it) and take a few steps into the hall, so we don't jump straight to the
+    // next room — it reads like a person stepping out and walking on.
+    const outDir = new THREE.Vector3().subVectors(door, room.center).setY(0)
+    if (outDir.lengthSq() < 1e-4) outDir.copy(outward(door))
+    outDir.normalize()
+    const ahead = door.clone().add(outDir.multiplyScalar(STEP))
+    ahead.y = EYE
+    travel(ahead, ahead)                      // centre → through door → into the hall
   }
 
-  // Exit back out through a door.
-  const last = R[order[order.length - 1]]
-  const exitDoor = nearestDoor(last.center) || last.center.clone()
-  const exitOut = exitDoor.clone().add(outward(exitDoor).multiplyScalar(2.4))
-  exitOut.y = 4.5
-  frames.push({ kind: 'travel', p0: null, p1: exitDoor.clone(), dur: 1.8, lookAt: exitDoor.clone() })
-  frames.push({ kind: 'travel', p0: null, p1: exitOut, dur: 2.6, lookAt: bc.clone() })
+  // Exit: from where we ended up, drift back outside.
+  const exitOut = cursor.clone().add(outward(cursor).multiplyScalar(2.8))
+  exitOut.y = 3.6
+  travel(exitOut, bc)
   return frames
 }
 
@@ -616,8 +652,11 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
       t.current = 0
       started.current = false
       onCaption?.(null)
+      camera.fov = 72          // wide interior FOV — space reads as spacious
+      camera.updateProjectionMatrix()
     }
-  }, [active, tour, onCaption])
+    return () => { camera.fov = 55; camera.updateProjectionMatrix() }
+  }, [active, tour, onCaption, camera])
 
   const smooth = (x) => x * x * (3 - 2 * x)   // smoothstep ease-in-out
 
@@ -646,13 +685,13 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
       const desired = new THREE.Vector3().subVectors(f.lookAt, camera.position)
       if (desired.lengthSq() > 1e-4) {
         desired.normalize()
-        lookDir.current.lerp(desired, 0.09).normalize()
+        lookDir.current.lerp(desired, 0.05).normalize()   // gentle, calm turns
       }
       camera.lookAt(new THREE.Vector3().addVectors(camera.position, lookDir.current))
     } else if (f.kind === 'reveal') {
       camera.position.copy(f.pos)
       const yaw = revealYaw.current + e * Math.PI * 2
-      const dir = new THREE.Vector3(Math.sin(yaw), -0.05, Math.cos(yaw))
+      const dir = new THREE.Vector3(Math.sin(yaw), -0.12, Math.cos(yaw)) // gentle look-down surveys the room
       camera.lookAt(new THREE.Vector3().addVectors(f.pos, dir))
     }
 
@@ -675,8 +714,13 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   const [surfaceCustomizations, setSurfaceCustomizations] = useState({})
   const [cineCaption, setCineCaption] = useState(null)   // {name, dims} during reveals
 
-  // 1 pixel = 1 centimeter (0.01m)
-  const scale = 0.01
+  // World scale in metres-per-pixel. When the plan was measured (OCR read its
+  // dimension labels), use the REAL scale so the house is life-sized — a 12'
+  // room is genuinely 12', ceilings feel like ceilings, and walking at ~1.3 m/s
+  // feels like a person. Falls back to 1px=1cm if unmeasured.
+  const ftPerPx = detection?.stats?.scale_ft_per_px
+              ?? detection?.measurements?.scale_ft_per_px ?? null
+  const scale = ftPerPx ? ftPerPx * 0.3048 : 0.01   // ft→m
 
   const imgW = detection?.image_size?.width || 1000
   const imgH = detection?.image_size?.height || 1000
@@ -957,6 +1001,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         {confirmedLayout && isWalkthrough && (
           <PlayerController
             walls={confirmedLayout.walls}
+            openings={confirmedLayout.openings}
             cx={cx}
             cy={cy}
             scale={scale}
