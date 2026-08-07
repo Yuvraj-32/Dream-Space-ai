@@ -714,21 +714,45 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   const [surfaceCustomizations, setSurfaceCustomizations] = useState({})
   const [cineCaption, setCineCaption] = useState(null)   // {name, dims} during reveals
 
-  // World scale in metres-per-pixel. When the plan was measured (OCR read its
-  // dimension labels), use the REAL scale so the house is life-sized — a 12'
-  // room is genuinely 12', ceilings feel like ceilings, and walking at ~1.3 m/s
-  // feels like a person. Falls back to 1px=1cm if unmeasured.
-  const ftPerPx = detection?.stats?.scale_ft_per_px
-              ?? detection?.measurements?.scale_ft_per_px ?? null
-  const scale = ftPerPx ? ftPerPx * 0.3048 : 0.01   // ft→m
-
   const imgW = detection?.image_size?.width || 1000
   const imgH = detection?.image_size?.height || 1000
-  const cx = imgW / 2
-  const cy = imgH / 2
 
-  const floor_w = imgW * scale
-  const floor_h = imgH * scale
+  // ── Building bounding box (pixels) from the detected walls ──────────
+  // The plan often occupies only part of the image (margins, dimension lines,
+  // grid), so we size/centre the 3D world on the *building*, not the image.
+  const _pxWalls = (confirmedLayout?.walls || detection?.walls || [])
+  let _bx0 = Infinity, _by0 = Infinity, _bx1 = -Infinity, _by1 = -Infinity
+  for (const w of _pxWalls) {
+    _bx0 = Math.min(_bx0, w.x1, w.x2); _bx1 = Math.max(_bx1, w.x1, w.x2)
+    _by0 = Math.min(_by0, w.y1, w.y2); _by1 = Math.max(_by1, w.y1, w.y2)
+  }
+  const _hasWalls = _pxWalls.length > 0 && isFinite(_bx0)
+  const bldW = _hasWalls ? (_bx1 - _bx0) : imgW
+  const bldH = _hasWalls ? (_by1 - _by0) : imgH
+  const bldLongPx = Math.max(bldW, bldH) || Math.max(imgW, imgH)
+
+  // ── World scale (metres/pixel) ─────────────────────────────────────
+  // Prefer the OCR-measured real scale, but ONLY when it yields a plausible
+  // building size (3–60 m). Otherwise normalize the building's longer side to
+  // a typical home length so proportions are always right — walls (2.6 m) look
+  // correct regardless of image resolution or whether dimensions were read.
+  const DEFAULT_HOME_LONG_M = 12
+  const ftPerPx = detection?.stats?.scale_ft_per_px
+              ?? detection?.measurements?.scale_ft_per_px ?? null
+  let scale = null
+  if (ftPerPx) {
+    const s = ftPerPx * 0.3048               // ft → m
+    if (bldLongPx * s >= 3 && bldLongPx * s <= 60) scale = s
+  }
+  if (!scale) scale = DEFAULT_HOME_LONG_M / bldLongPx
+
+  // Centre the world on the building (not the image), so it sits at the origin.
+  const cx = _hasWalls ? (_bx0 + _bx1) / 2 : imgW / 2
+  const cy = _hasWalls ? (_by0 + _by1) / 2 : imgH / 2
+
+  // Floor sized to the building (+ small margin), not the whole image.
+  const floor_w = (_hasWalls ? bldW : imgW) * scale * 1.12
+  const floor_h = (_hasWalls ? bldH : imgH) * scale * 1.12
 
   // Reset FPP and materials state if layout changes or is reset
   useEffect(() => {
