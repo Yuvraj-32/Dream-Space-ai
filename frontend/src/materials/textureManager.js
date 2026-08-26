@@ -44,11 +44,41 @@ const _listeners = new Set()
 let _version = 0
 
 /* ── change notification (lets React re-render when maps finish loading) ── */
+/**
+ * A material built before its images arrived has null maps. Rather than throw
+ * it away and rely on every consumer re-rendering at the right moment, fill the
+ * maps in on the material that is already on the mesh. Surfaces therefore
+ * upgrade from flat to textured whether or not React re-renders.
+ *
+ * This does not weaken the texture invariant: the *textures* are still never
+ * mutated — we only attach the correct pre-configured variant to a material
+ * whose cache key already fixed that exact repeat/rotation.
+ */
+function _refreshMaterials() {
+  _materials.forEach((mat) => {
+    const src = mat.userData.__src
+    if (!src) return
+    let changed = false
+    const attach = (slot, url) => {
+      if (!url || mat[slot]) return
+      const tex = getTextureVariant(url, src.rx, src.ry, src.rot)
+      if (tex) { mat[slot] = tex; changed = true }
+    }
+    attach('map', src.maps.color)
+    attach('normalMap', src.maps.normal)
+    attach('roughnessMap', src.maps.roughness)
+    if (changed) {
+      if (mat.normalMap && src.normalScale != null) {
+        mat.normalScale = new THREE.Vector2(src.normalScale, src.normalScale)
+      }
+      mat.needsUpdate = true
+    }
+  })
+}
+
 function _bump() {
   _version += 1
-  // Cached materials were built from the old load state (maps may have been
-  // missing). Drop them so the next render rebuilds with the real maps.
-  _materials.clear()
+  _refreshMaterials()
   _listeners.forEach((fn) => fn())
 }
 
@@ -210,6 +240,11 @@ export function getWallMaterial(def, tintHex, repeatX, repeatY, rotationDeg = 0)
   if (normalMap) {
     const s = def.normalScale ?? 1
     mat.normalScale = new THREE.Vector2(s, s)
+  }
+
+  // Everything _refreshMaterials needs to fill in maps that were not ready yet.
+  mat.userData.__src = {
+    maps, rx, ry, rot, normalScale: def.normalScale ?? 1,
   }
 
   _materials.set(key, mat)

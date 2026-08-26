@@ -427,6 +427,41 @@ function Walls3D({ walls, openings, cx, cy, scale, onSelectWall, selectedSurface
   return <>{meshes}</>
 }
 
+/* ─── Floor ────────────────────────────────────────────────────
+ * Its own component for the same reason Walls3D is one: it subscribes to the
+ * material store itself, so when a texture finishes loading the floor
+ * re-renders and swaps its flat placeholder material for the textured one.
+ * Same registry, texture manager, cache and repeat rule as the walls — a flat
+ * plane just needs one material instead of six.
+ */
+function Floor3D({ width, depth, customization, onSelect, interactive }) {
+  useMaterialVersion()
+
+  const custom = customization || {}
+  const material = surfaceMaterial(
+    custom.materialId || DEFAULT_FLOOR_MATERIAL_ID,
+    custom.color,
+    width,
+    depth
+  )
+
+  return (
+    <mesh
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, -0.005, 0]}
+      receiveShadow
+      material={material}
+      onClick={(e) => {
+        if (!interactive) return
+        e.stopPropagation()
+        onSelect?.()
+      }}
+    >
+      <planeGeometry args={[width, depth]} />
+    </mesh>
+  )
+}
+
 function PlayerController({ walls, openings, cx, cy, scale, rooms, active }) {
   const { camera } = useThree()
   const keys = useRef({ w: false, a: false, s: false, d: false })
@@ -790,21 +825,6 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
     if (!isCinematic) setCineCaption(null)
   }, [showcaseMode, isWalkthrough, isCinematic])
 
-  // Re-render as texture maps finish loading (the floor needs this too; walls
-  // subscribe inside Walls3D).
-  useMaterialVersion()
-
-  // The floor is a single plane, so it takes one material sized from its real
-  // metre dimensions. With no choice made it resolves to the internal
-  // 'floor_default' entry, which reproduces the original dark glossy finish.
-  const floorCustom = surfaceCustomizations['floor'] || {}
-  const floorMaterial = surfaceMaterial(
-    floorCustom.materialId || DEFAULT_FLOOR_MATERIAL_ID,
-    floorCustom.color,
-    floor_w,
-    floor_h
-  )
-
   // Fetch the PBR maps for whichever materials are actually applied. Nothing
   // is downloaded until a material is chosen, so the default scene is as light
   // as before.
@@ -1004,21 +1024,13 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               surfaceCustomizations={surfaceCustomizations}
             />
 
-            {/* Floor — same registry, texture manager and repeat rule as the
-                walls; a plane just needs one material instead of six. */}
-            <mesh
-              rotation={[-Math.PI / 2, 0, 0]}
-              position={[0, -0.005, 0]}
-              receiveShadow
-              material={floorMaterial}
-              onClick={(e) => {
-                if (isWalkthrough || isCinematic || showcaseMode) return
-                e.stopPropagation()
-                setSelectedSurface({ type: 'floor' })
-              }}
-            >
-              <planeGeometry args={[floor_w, floor_h]} />
-            </mesh>
+            <Floor3D
+              width={floor_w}
+              depth={floor_h}
+              customization={surfaceCustomizations['floor']}
+              interactive={!isWalkthrough && !isCinematic && !showcaseMode}
+              onSelect={() => setSelectedSurface({ type: 'floor' })}
+            />
 
             {/* Glowing selection highlight for Floor */}
             {selectedSurface?.type === 'floor' && !showcaseMode && (
