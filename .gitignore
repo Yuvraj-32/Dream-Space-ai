@@ -34,3 +34,7 @@ version.txt
 *.code-workspace
 .DS_Store
 Thumbs.db
+
+# ── Nested clones / installers / scratch downloads ──────
+Dream-Space-ai-Disha/
+*.exe
