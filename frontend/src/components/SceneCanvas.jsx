@@ -140,12 +140,15 @@ function GroundGlow() {
 }
 
 /* ─── Extruded Walls rendering with door/window gaps ──────── */
-function Walls3D({ walls, openings, cx, cy, scale, onSelectWall, selectedSurface, surfaceCustomizations }) {
-  const wall_height = 2.6
+function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, selectedSurface, surfaceCustomizations }) {
+  const wall_height = wallHeight ?? 3.0            // live-adjustable ceiling height (m)
   const wall_thickness = 0.15
-  const door_height = 2.0
-  const window_sill = 0.9
-  const window_head = 2.1
+  // Openings scale proportionally with the wall so they always look right as
+  // the height changes (ratios chosen to be realistic at the 3 m default:
+  // ~2.1 m door, 0.9 m sill, ~2.2 m window head).
+  const door_height = wall_height * 0.70
+  const window_sill = wall_height * 0.30
+  const window_head = wall_height * 0.73
 
   const meshes = []
 
@@ -446,7 +449,7 @@ function PlayerController({ walls, openings, cx, cy, scale, rooms, active }) {
       }
       camera.position.set(spawnX, 1.6, spawnZ)
       camera.lookAt(spawnX, 1.6, spawnZ - 1)
-      camera.fov = 72          // wide interior FOV to match a human's sense of space
+      camera.fov = 80          // wide FOV — opens up the space, feels less like a tunnel
       camera.updateProjectionMatrix()
     }
     return () => { camera.fov = 55; camera.updateProjectionMatrix() }
@@ -713,6 +716,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   const [selectedSurface, setSelectedSurface] = useState(null)
   const [surfaceCustomizations, setSurfaceCustomizations] = useState({})
   const [cineCaption, setCineCaption] = useState(null)   // {name, dims} during reveals
+  const [wallHeight, setWallHeight] = useState(3.0)      // live-adjustable ceiling height (m)
 
   const imgW = detection?.image_size?.width || 1000
   const imgH = detection?.image_size?.height || 1000
@@ -851,9 +855,27 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               🚶 First-Person walk
             </button>
           </div>
+
+          {/* Live wall-height slider */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
+              <span style={{ color: '#c7cce0', display: 'flex', alignItems: 'center', gap: 4 }}>📏 Wall height</span>
+              <span style={{ fontWeight: 700, color: '#3dd9c6' }}>
+                {wallHeight.toFixed(2)} m · {(wallHeight * 3.28084).toFixed(1)} ft
+              </span>
+            </div>
+            <input
+              type="range" min="2.4" max="4.5" step="0.05"
+              value={wallHeight}
+              onChange={e => setWallHeight(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: '#3dd9c6', cursor: 'pointer' }}
+              aria-label="Wall height"
+            />
+          </div>
+
           <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: '1.4' }}>
-            {!isWalkthrough 
-              ? 'Click any wall/floor to customize PBR surface · Orbit drag'
+            {!isWalkthrough
+              ? 'Click any wall/floor to customize PBR surface · Orbit drag · Drag the slider for live height'
               : 'Click viewport to capture mouse · WASD to walk · Move mouse to look · Esc to exit'
             }
           </div>
@@ -924,7 +946,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         style={{ background: 'transparent' }}
       >
         {/* Lighting */}
-        <ambientLight intensity={isWalkthrough || isCinematic ? 0.65 : 0.4} />
+        <ambientLight intensity={isWalkthrough ? 1.05 : isCinematic ? 0.65 : 0.4} />
         <directionalLight
           castShadow
           position={[10, 18, 12]}
@@ -949,6 +971,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               cx={cx}
               cy={cy}
               scale={scale}
+              wallHeight={wallHeight}
               onSelectWall={setSelectedSurface ? (id) => setSelectedSurface({ type: 'wall', id }) : null}
               selectedSurface={selectedSurface}
               surfaceCustomizations={surfaceCustomizations}
