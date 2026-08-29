@@ -62,4 +62,36 @@ cd backend && venv\Scripts\python -m pytest tests/ -q
 ```
 
 `test_regression.py` covers the classical engine; `test_ml.py` covers the ML
-engine (auto-skips if weights aren't downloaded).
+engine (auto-skips if weights aren't downloaded); `test_measurements.py` pins
+the scale-calibration guard.
+
+## Tuning detection
+
+`eval_detect.py` is the exploratory harness — it runs an engine over every plan
+in the repo root plus `tests/fixtures/`, and writes an annotated overlay PNG
+and the raw JSON per image to `backend/eval_out/` (git-ignored):
+
+```bash
+cd backend
+venv\Scripts\python eval_detect.py --engine ml            # all plans
+venv\Scripts\python eval_detect.py --engine both --measure
+venv\Scripts\python eval_detect.py --tag before           # A/B two runs
+venv\Scripts\python eval_detect.py --redraw               # re-render overlays only
+```
+
+Overlays draw openings **along** their host wall and rooms on top of walls —
+without both, correct detections look broken.
+
+Inference is ~30–60 s/image on CPU, dominated by 4× test-time rotation
+averaging. `DREAMSPACE_ML_ROTATIONS=1` makes it ~3.5× faster, but measurably
+degrades room-boundary quality (jagged edges the averaging removes), so 4 stays
+the default.
+
+### Scale calibration
+
+With `?measure=true`, OCR reads the plan's printed dimension labels to set a
+real-world scale. It only reports one when several samples **agree**; a plan
+whose labels don't OCR cleanly returns `scale_ft_per_px: null` and the frontend
+falls back to 1px=1cm. This is deliberate — the 3D stage sizes the whole world
+from this number, so a wrong scale silently produces a cathedral-sized flat,
+which is worse than an admitted unknown.

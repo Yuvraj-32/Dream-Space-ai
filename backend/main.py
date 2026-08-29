@@ -62,7 +62,39 @@ def run_detection(image_path: str, engine: str = "classical", measure: bool = Fa
         except Exception as exc:
             result.setdefault("stats", {})["measure_error"] = str(exc)
 
+    _ensure_scale(result)
     return result
+
+
+def _ensure_scale(result: dict) -> None:
+    """Guarantee a physically-grounded metres-per-pixel where one is derivable.
+
+    The 3D stage sizes the whole world from this. Printed dimension labels are
+    the trustworthy source, but they need `measure=true` AND legible text; when
+    they are absent the app used to fall back to a flat 1px=1cm, which is just
+    a function of image resolution (the same house came out 15.2 m wide from a
+    2732px scan and 2.9 m wide from a 447px one). Detected door widths give a
+    real-world anchor instead, so `scale_source` records which one was used and
+    callers can present an estimate differently from a measurement.
+    """
+    stats = result.setdefault("stats", {})
+    if stats.get("scale_ft_per_px"):
+        stats["scale_source"] = "dimension_labels"
+        return
+
+    stats.setdefault("scale_ft_per_px", None)
+    stats["scale_source"] = None
+    try:
+        from measurements import apply_scale, estimate_scale_from_doors
+        ft_per_px = estimate_scale_from_doors(result)
+    except Exception as exc:
+        stats["scale_estimate_error"] = str(exc)
+        return
+
+    if ft_per_px:
+        apply_scale(result, ft_per_px)
+        stats["scale_ft_per_px"] = round(ft_per_px, 5)
+        stats["scale_source"] = "door_width"
 
 
 @app.get("/")

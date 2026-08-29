@@ -17,6 +17,8 @@ backend/ml/CubiCasa5k/
 backend/uploads/
 backend/*.png
 backend/tests/*.png
+# eval_detect.py output (overlays + JSON per plan)
+backend/eval_out/
 
 # ── Frontend ────────────────────────────────────────────
 frontend/node_modules/

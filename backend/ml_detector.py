@@ -7,11 +7,17 @@ need no changes.
 
 Strategy (primary path — junction-based):
   - Rotation-averaged inference (4×90°) → full 44-channel prediction.
-  - CubiCasa's native post-processor (get_polygons) reads the model's wall-
-    JUNCTION heatmaps and builds walls as a graph between those junctions, so
-    walls share junctions and are gap-free by construction. Rooms come out as
-    class-merged polygons; openings are snapped onto their host walls.
-  - Out-of-building rooms (logos/legends) are dropped via the wall envelope.
+  - WALLS: CubiCasa's native post-processor (get_polygons) reads the model's
+    wall-JUNCTION heatmaps and builds walls as a graph between those junctions,
+    so walls share junctions and are gap-free by construction.
+  - ROOMS: connected components of the room segmentation — NOT get_polygons'
+    room output, whose junction-spanned rectangle grid reaches the image border
+    and unions per class across the whole plan (see _postprocess for what that
+    produced on real plans).
+  - OPENINGS: snapped onto their host walls, then deduplicated and filtered by
+    the model's own evidence score.
+  - Rooms outside the building (logos/legends/title blocks) are dropped using
+    the filled wall footprint.
 
 Fallback path (skeleton): if post-processing fails or finds no walls, the wall
 mask is skeletonized and vectorized (less accurate, but robust).
@@ -57,6 +63,20 @@ _ROOM_NAMES = [
 ]
 # Classes that count as real enclosed rooms (exclude bg/outdoor/wall/railing).
 _ROOM_CLASSES = {3, 4, 5, 6, 7, 9, 10, 11}
+# "undefined" is the model's catch-all; a named class is preferred whenever it
+# holds a meaningful share of the region (see _dominant_room_class).
+_UNDEFINED_CLASS = 11
+
+# Test-time rotation averaging: 4 forward passes (the model's best-quality
+# mode) vs 1. Override with the DREAMSPACE_ML_ROTATIONS env var.
+_N_ROTATIONS = int(os.environ.get("DREAMSPACE_ML_ROTATIONS", "4"))
+
+# Openings below this evidence score are noise — the extractor emits candidates
+# with prob ~0.004 on blank wall.
+_OPENING_MIN_PROB = 0.05
+# ...and an opening further than this (px, at working resolution) from its
+# nearest wall is not a hole in that wall.
+_OPENING_MAX_WALL_DIST = 14.0
 
 _model = None  # singleton
 
@@ -161,9 +181,14 @@ class _RotateNTurns:
         return self.rot_tensor(x, n) if kind == "tensor" else self.rot_points(x, n)
 
 
-def _predict_full(img_bgr, max_dim=1024):
+def _predict_full(img_bgr, max_dim=1024, n_rotations=None):
     """Rotation-averaged forward pass → full (1,44,H,W) prediction tensor and
-    the working size (nw, nh)."""
+    the working size (nw, nh).
+
+    n_rotations: how many of the 4x90° test-time rotations to average. 4 is the
+    model's best-quality mode and costs 4 forward passes; 1 is ~4x faster.
+    Defaults to _N_ROTATIONS.
+    """
     import torch
     import torch.nn.functional as F
     global _rotate
@@ -185,7 +210,8 @@ def _predict_full(img_bgr, max_dim=1024):
     rgb = rgb * 2.0 - 1.0
     image = torch.from_numpy(np.moveaxis(rgb, -1, 0))[None]
 
-    rotations = [(0, 0), (1, -1), (2, 2), (-1, 1)]
+    k = n_rotations if n_rotations is not None else _N_ROTATIONS
+    rotations = [(0, 0), (1, -1), (2, 2), (-1, 1)][:max(1, min(4, k))]
     preds = torch.zeros([len(rotations), _N_CLASSES, nh, nw])
     with torch.no_grad():
         for i, (fwd, back) in enumerate(rotations):
@@ -208,15 +234,6 @@ def _wall_centerline(p):
     return x, int(ys.min()), x, int(ys.max()), float(xs.max() - xs.min())
 
 
-def _iter_shapely(g):
-    if g.geom_type == "Polygon":
-        yield g
-    elif hasattr(g, "geoms"):
-        for sub in g.geoms:
-            if sub.geom_type == "Polygon":
-                yield sub
-
-
 def _postprocess(prediction, nw, nh):
     """Run CubiCasa's junction post-processing → (walls, rooms, openings) as
     legacy-schema dicts at the working resolution. Raises on failure so the
@@ -227,7 +244,10 @@ def _postprocess(prediction, nw, nh):
     from floortrans.post_prosessing import split_prediction, get_polygons
 
     heatmaps, rooms_seg, icons_seg = split_prediction(prediction, (nh, nw), [21, 12, 11])
-    polygons, types, room_polys, room_types = get_polygons(
+    # get_polygons zeroes the wall/railing channels of rooms_seg in place, so
+    # snapshot the room class map BEFORE calling it.
+    rooms_pred = np.argmax(rooms_seg, axis=0).astype(np.int32)
+    polygons, types, _room_polys, _room_types = get_polygons(
         (heatmaps, rooms_seg, icons_seg), 0.2, [_ICON_WINDOW, _ICON_DOOR]
     )
 
@@ -250,64 +270,157 @@ def _postprocess(prediction, nw, nh):
             "thickness": round(th, 2),
         })
 
-    # ── Building envelope (from wall endpoints) for out-of-building filter ──
-    if walls:
-        bx = [w["x1"] for w in walls] + [w["x2"] for w in walls]
-        by = [w["y1"] for w in walls] + [w["y2"] for w in walls]
-        env = (min(bx), min(by), max(bx), max(by))
-    else:
-        env = (0, 0, nw, nh)
+    # ── Rooms ────────────────────────────────────────────────────────
+    # NOT from get_polygons: its rooms come from a rectangle grid spanned by
+    # wall junctions, unioned per class over the WHOLE image. That grid reaches
+    # the image border (so logos/legends outside the building become "rooms"),
+    # and the per-class union glues every same-class region into one polygon
+    # that snakes across the plan — measured on the 2BHK sample it produced a
+    # single 762k-px "undefined" blob covering most of the floor. Connected
+    # components of the room segmentation respect the wall pixels that separate
+    # rooms, so each enclosed space comes out as its own polygon.
+    rooms = _rooms_from_pred(rooms_pred, nw, nh)
+    rooms = _drop_outside_building(rooms, walls, nw, nh)
+    for rid, rm in enumerate(rooms):
+        rm["id"] = f"room_{rid}"
 
-    # ── Rooms (shapely polygons → dicts; drop outdoor + out-of-envelope) ──
-    rooms = []
-    rid = 0
-    for rp, rt in zip(room_polys, room_types):
-        cls = rt.get("class", 0)
-        if cls in (0, 1):        # background / outdoor
+    # ── Openings (window=1, door=2) → nearest wall ──
+    openings = _openings_from_polygons(polygons, types, walls, nw, nh)
+
+    return walls, rooms, openings
+
+
+def _building_mask(walls, w, h):
+    """Filled mask of the building footprint, from the detected wall graph.
+
+    Used to reject "rooms" the segmentation finds outside the plan — title
+    blocks, legends, and company logos are big flat regions that the model
+    happily classifies as living_room. A bounding box around the walls does not
+    catch those (a logo in the top-right corner sits inside the box); the
+    filled outer wall loop does.
+    """
+    if not walls:
+        return None
+    m = np.zeros((h, w), np.uint8)
+    thick = max(3, int(round(min(w, h) * 0.006)))
+    for wl in walls:
+        cv2.line(m, (wl["x1"], wl["y1"]), (wl["x2"], wl["y2"]), 255, thick)
+    # Close doorway-sized breaks so the outer loop is continuous before filling.
+    k = int(max(5, round(min(w, h) * 0.02))) | 1
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (k, k)))
+    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    filled = np.zeros((h, w), np.uint8)
+    cv2.drawContours(filled, [max(cnts, key=cv2.contourArea)], -1, 255, -1)
+    return filled
+
+
+def _drop_outside_building(rooms, walls, w, h, min_inside=0.55):
+    """Keep only rooms that lie mostly inside the building footprint."""
+    building = _building_mask(walls, w, h)
+    if building is None:
+        return rooms
+    kept = []
+    for rm in rooms:
+        poly = np.array(rm["polygon"], dtype=np.int32)
+        if len(poly) < 3:
             continue
-        name = _ROOM_NAMES[cls] if cls < len(_ROOM_NAMES) else "room"
-        for poly in _iter_shapely(rp):
-            xy = np.array(poly.exterior.coords, dtype=np.int32)
-            if len(xy) < 3:
-                continue
-            x, y, ww, hh = cv2.boundingRect(xy)
-            ccx, ccy = x + ww / 2, y + hh / 2
-            # Reject rooms whose centroid falls outside the wall envelope.
-            if not (env[0] - 10 <= ccx <= env[2] + 10 and env[1] - 10 <= ccy <= env[3] + 10):
-                continue
-            area = float(cv2.contourArea(xy))
-            if area < nw * nh * 0.0015:
-                continue
-            approx = cv2.approxPolyDP(xy.reshape(-1, 1, 2), 0.01 * cv2.arcLength(xy, True), True)
-            rooms.append({
-                "id": f"room_{rid}",
-                "type": name,
-                "area": round(area, 1),
-                "bbox": {"x": int(x), "y": int(y), "w": int(ww), "h": int(hh)},
-                "centroid": {"x": int(round(ccx)), "y": int(round(ccy))},
-                "polygon": [[int(pt[0][0]), int(pt[0][1])] for pt in approx],
-            })
-            rid += 1
+        rmask = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(rmask, [poly], 255)
+        total = int(np.count_nonzero(rmask))
+        if total == 0:
+            continue
+        inside = int(np.count_nonzero(cv2.bitwise_and(rmask, building)))
+        if inside / total >= min_inside:
+            kept.append(rm)
+    return kept
 
-    # ── Openings (icon polygons: window=1, door=2) → nearest wall ──
-    openings = []
-    oid = 0
+
+def _openings_from_polygons(polygons, types, walls, w, h):
+    """Door/window polygons → opening dicts, filtered and deduplicated.
+
+    CubiCasa's opening extractor emits several near-identical candidates for
+    one physical door (same wall, overlapping spans) plus occasional
+    no-evidence detections, so both are cleaned up here.
+    """
+    cands = []
     for i, t in enumerate(types):
         if t["type"] != "icon" or int(t.get("class", -1)) not in (_ICON_WINDOW, _ICON_DOOR):
             continue
+        prob = float(t.get("prob", 0.0))
+        if prob < _OPENING_MIN_PROB:
+            continue
         p = polygons[i]
         cx, cy = int(p[:, 0].mean()), int(p[:, 1].mean())
-        w_px = float(max(p[:, 0].max() - p[:, 0].min(), p[:, 1].max() - p[:, 1].min()))
-        openings.append({
-            "id": f"opening_{oid}",
-            "wall_id": _nearest_wall_id(cx, cy, walls),
+        span = float(max(p[:, 0].max() - p[:, 0].min(), p[:, 1].max() - p[:, 1].min()))
+        wall = _nearest_wall(cx, cy, walls)
+        if wall is None:
+            continue
+        # An opening belongs ON its wall. Anything further away than a wall
+        # thickness plus slack is a stray icon, not a hole in this wall.
+        gap = _point_seg_dist(cx, cy, wall["x1"], wall["y1"], wall["x2"], wall["y2"])
+        if gap > max(_OPENING_MAX_WALL_DIST, wall.get("thickness", 0)) :
+            continue
+        cands.append({
+            "wall": wall,
             "x": cx, "y": cy,
-            "width_px": w_px,
+            "width_px": span,
+            "prob": prob,
             "type": "door" if int(t["class"]) == _ICON_DOOR else "window",
         })
-        oid += 1
 
-    return walls, rooms, openings
+    kept = _dedup_openings(cands)
+    openings = []
+    for oid, c in enumerate(kept):
+        openings.append({
+            "id": f"opening_{oid}",
+            "wall_id": c["wall"]["id"],
+            "x": c["x"], "y": c["y"],
+            "width_px": round(c["width_px"], 1),
+            "type": c["type"],
+            "confidence": round(c["prob"], 3),
+        })
+    return openings
+
+
+def _dedup_openings(cands, overlap_frac=0.4):
+    """Collapse candidates that overlap along the same wall, keeping the most
+    confident of each cluster."""
+    by_wall = {}
+    for c in cands:
+        by_wall.setdefault(c["wall"]["id"], []).append(c)
+
+    kept = []
+    for wall_id, group in by_wall.items():
+        wall = group[0]["wall"]
+        dx, dy = wall["x2"] - wall["x1"], wall["y2"] - wall["y1"]
+        n = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / n, dy / n
+        # Project each candidate onto the wall axis → [start, end] interval.
+        for c in group:
+            t = (c["x"] - wall["x1"]) * ux + (c["y"] - wall["y1"]) * uy
+            c["_t0"] = t - c["width_px"] / 2
+            c["_t1"] = t + c["width_px"] / 2
+        group.sort(key=lambda c: c["_t0"])
+
+        cluster = [group[0]]
+        for c in group[1:]:
+            prev = cluster[-1]
+            overlap = min(prev["_t1"], c["_t1"]) - max(prev["_t0"], c["_t0"])
+            shorter = min(prev["_t1"] - prev["_t0"], c["_t1"] - c["_t0"]) or 1.0
+            if overlap > 0 and overlap / shorter >= overlap_frac:
+                cluster.append(c)
+            else:
+                kept.append(max(cluster, key=lambda k: k["prob"]))
+                cluster = [c]
+        kept.append(max(cluster, key=lambda k: k["prob"]))
+
+    for c in kept:
+        c.pop("_t0", None)
+        c.pop("_t1", None)
+    return kept
 
 
 def _predict_masks(img_bgr, max_dim=1024):
@@ -449,8 +562,40 @@ def _walls_from_mask(wall_mask, w, h):
     return walls
 
 
+def _dominant_room_class(pixels, named_share=0.25):
+    """Majority room class in a region, preferring a NAMED class over the
+    model's "undefined" catch-all.
+
+    On plans whose drawing style the model is unsure about, "undefined" wins
+    the raw majority in most rooms while a correct label (bedroom, bath, …)
+    sits just behind it. Taking the strongest named class whenever it covers a
+    meaningful share turns "undefined ×7" into usable room names, which the 3D
+    stage shows as captions.
+    """
+    classes, counts = np.unique(pixels, return_counts=True)
+    tally = dict(zip(classes.tolist(), counts.tolist()))
+    total = int(counts.sum()) or 1
+    named = {c: n for c, n in tally.items()
+             if c in _ROOM_CLASSES and c != _UNDEFINED_CLASS}
+    if named:
+        best = max(named, key=named.get)
+        if named[best] / total >= named_share:
+            return int(best)
+    room_only = {c: n for c, n in tally.items() if c in _ROOM_CLASSES}
+    if room_only:
+        return int(max(room_only, key=room_only.get))
+    return int(max(tally, key=tally.get))
+
+
 def _rooms_from_pred(rooms_pred, w, h):
-    """Connected components of room-class pixels → labeled room polygons."""
+    """Connected components of room-class pixels → labeled room polygons.
+
+    The segmentation's wall band already separates adjacent rooms, so no extra
+    doorway sealing is needed here: rasterizing the detected wall graph as a
+    separator was measured to split nothing on the sample plans (it only shaved
+    1-2% off each room's area). Regions that do span several named spaces are
+    genuinely open-plan.
+    """
     room_area_min = w * h * 0.002
     room_mask = np.isin(rooms_pred, list(_ROOM_CLASSES)).astype(np.uint8)
     n, labels, stats, cents = cv2.connectedComponentsWithStats(room_mask, connectivity=8)
@@ -464,9 +609,7 @@ def _rooms_from_pred(rooms_pred, w, h):
         rw = int(stats[lb, cv2.CC_STAT_WIDTH]); rh = int(stats[lb, cv2.CC_STAT_HEIGHT])
 
         region = labels == lb
-        # Majority room class → human-readable label.
-        classes, counts = np.unique(rooms_pred[region], return_counts=True)
-        dominant = int(classes[np.argmax(counts)])
+        dominant = _dominant_room_class(rooms_pred[region])
         label_name = _ROOM_NAMES[dominant] if dominant < len(_ROOM_NAMES) else "room"
 
         mask = region.astype(np.uint8) * 255
@@ -474,7 +617,11 @@ def _rooms_from_pred(rooms_pred, w, h):
         if not cnts:
             continue
         cnt = max(cnts, key=cv2.contourArea)
-        approx = cv2.approxPolyDP(cnt, 0.01 * cv2.arcLength(cnt, True), True)
+        # Simplify enough to drop pixel staircase noise, but cap the tolerance:
+        # a proportional-only epsilon scales with perimeter, so a large or
+        # L-shaped room gets a tolerance big enough to cut its corners off.
+        eps = min(0.01 * cv2.arcLength(cnt, True), max(3.0, min(w, h) * 0.006))
+        approx = cv2.approxPolyDP(cnt, eps, True)
         polygon = [[int(p[0][0]), int(p[0][1])] for p in approx]
 
         rooms.append({
@@ -489,13 +636,18 @@ def _rooms_from_pred(rooms_pred, w, h):
     return rooms
 
 
-def _nearest_wall_id(cx, cy, walls):
-    best_id, best_d = None, float("inf")
+def _nearest_wall(cx, cy, walls):
+    best, best_d = None, float("inf")
     for wall in walls:
         d = _point_seg_dist(cx, cy, wall["x1"], wall["y1"], wall["x2"], wall["y2"])
         if d < best_d:
-            best_d, best_id = d, wall["id"]
-    return best_id
+            best_d, best = d, wall
+    return best
+
+
+def _nearest_wall_id(cx, cy, walls):
+    wall = _nearest_wall(cx, cy, walls)
+    return wall["id"] if wall else None
 
 
 def _point_seg_dist(px, py, x1, y1, x2, y2):

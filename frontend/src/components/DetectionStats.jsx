@@ -62,12 +62,38 @@ export default function DetectionStats({ detection, loading }) {
         )}
       </div>
 
-      {/* Real-world measurements (present when ?measure=true) */}
+      {/* Real-world measurements. Two sources, and the difference matters:
+          "dimension_labels" was read off the plan; "door_width" is inferred
+          from standard door sizes and is only approximate. */}
       {measurements && (
         <div style={{ marginTop: 12 }}>
           <div className="section-label">Dimensions</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
             Building: <b>{measurements.building_ft?.[0]} × {measurements.building_ft?.[1]} ft</b>
+            {stats.scale_source === 'door_width' && (
+              <span
+                title="No dimension labels could be read, so the scale is estimated from standard door widths (±10%)."
+                style={{
+                  marginLeft: 6, padding: '1px 6px', borderRadius: 4, fontSize: 10,
+                  fontWeight: 700, letterSpacing: 0.3,
+                  background: 'rgba(255,193,107,0.15)', color: '#ffc16b',
+                }}
+              >
+                ~EST
+              </span>
+            )}
+            {stats.scale_source === 'dimension_labels' && (
+              <span
+                title="Scale read from the plan's own printed dimension labels."
+                style={{
+                  marginLeft: 6, padding: '1px 6px', borderRadius: 4, fontSize: 10,
+                  fontWeight: 700, letterSpacing: 0.3,
+                  background: 'rgba(61,217,198,0.15)', color: '#3dd9c6',
+                }}
+              >
+                MEASURED
+              </span>
+            )}
           </div>
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <thead>

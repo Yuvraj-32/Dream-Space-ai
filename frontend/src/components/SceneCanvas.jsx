@@ -709,6 +709,37 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
   return null
 }
 
+/* ─── Frame the orbit camera to the building ────────────────────
+ * The <Canvas camera> prop only applies on mount, but the layout arrives
+ * later (and its size varies per plan), so the initial position would frame
+ * the wrong volume. This pulls the camera back to fit `span` whenever the
+ * building size changes and we're in orbit mode.
+ */
+function SceneFramer({ span, active }) {
+  const { camera, controls } = useThree()
+  const framed = useRef(null)
+
+  useEffect(() => {
+    if (!active || !span || framed.current === span) return
+    framed.current = span
+    const d = span * 0.9 + 3
+    camera.position.set(0, span * 0.75 + 2, d)
+    camera.near = 0.05
+    camera.far = Math.max(200, span * 12)
+    camera.updateProjectionMatrix()
+    if (controls) {
+      controls.target.set(0, 0.8, 0)
+      controls.update()
+    } else {
+      camera.lookAt(0, 0.8, 0)
+    }
+  }, [span, active, camera, controls])
+
+  // Re-frame next time we return to orbit mode (walkthrough moves the camera).
+  useEffect(() => { if (!active) framed.current = null }, [active])
+  return null
+}
+
 /* ─── Main Canvas Wrapper ────────────────────────────────────── */
 export default function SceneCanvas({ uploadData, detection, confirmedLayout, showcaseMode, setShowcaseMode }) {
   const [isWalkthrough, setIsWalkthrough] = useState(false)
@@ -718,28 +749,37 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   const [cineCaption, setCineCaption] = useState(null)   // {name, dims} during reveals
   const [wallHeight, setWallHeight] = useState(3.0)      // live-adjustable ceiling height (m)
 
-  const imgW = detection?.image_size?.width || 1000
-  const imgH = detection?.image_size?.height || 1000
+  // Extent of the BUILDING in image pixels — the walls, not the whole image.
+  // A plan usually sits inside a margin of whitespace, title block and
+  // dimension lines, so sizing the world to the image made the floor slab far
+  // larger than the house and pushed the house off-centre whenever the plan
+  // wasn't centred in its scan.
+  const bounds = useMemo(() => {
+    const walls = confirmedLayout?.walls || detection?.walls || []
+    if (walls.length === 0) {
+      const w = detection?.image_size?.width || 1000
+      const h = detection?.image_size?.height || 1000
+      return { minX: 0, minY: 0, maxX: w, maxY: h }
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const w of walls) {
+      minX = Math.min(minX, w.x1, w.x2); maxX = Math.max(maxX, w.x1, w.x2)
+      minY = Math.min(minY, w.y1, w.y2); maxY = Math.max(maxY, w.y1, w.y2)
+    }
+    return { minX, minY, maxX, maxY }
+  }, [confirmedLayout, detection])
 
-  // ── Building bounding box (pixels) from the detected walls ──────────
-  // The plan often occupies only part of the image (margins, dimension lines,
-  // grid), so we size/centre the 3D world on the *building*, not the image.
-  const _pxWalls = (confirmedLayout?.walls || detection?.walls || [])
-  let _bx0 = Infinity, _by0 = Infinity, _bx1 = -Infinity, _by1 = -Infinity
-  for (const w of _pxWalls) {
-    _bx0 = Math.min(_bx0, w.x1, w.x2); _bx1 = Math.max(_bx1, w.x1, w.x2)
-    _by0 = Math.min(_by0, w.y1, w.y2); _by1 = Math.max(_by1, w.y1, w.y2)
-  }
-  const _hasWalls = _pxWalls.length > 0 && isFinite(_bx0)
-  const bldW = _hasWalls ? (_bx1 - _bx0) : imgW
-  const bldH = _hasWalls ? (_by1 - _by0) : imgH
-  const bldLongPx = Math.max(bldW, bldH) || Math.max(imgW, imgH)
+  const bldLongPx = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) || 1000
 
-  // ── World scale (metres/pixel) ─────────────────────────────────────
-  // Prefer the OCR-measured real scale, but ONLY when it yields a plausible
-  // building size (3–60 m). Otherwise normalize the building's longer side to
-  // a typical home length so proportions are always right — walls (2.6 m) look
-  // correct regardless of image resolution or whether dimensions were read.
+  // World scale in metres-per-pixel, so the house is life-sized: a 12' room is
+  // genuinely 12', ceilings feel like ceilings, and walking at ~1.3 m/s feels
+  // like a person. The backend supplies this from the plan's printed dimension
+  // labels when they OCR cleanly, otherwise from detected door widths
+  // (stats.scale_source says which). When neither is available, normalize the
+  // building's longer side to a typical home length (12 m) instead of a flat
+  // 1px=1cm — that flat fallback is a function of image resolution, not of the
+  // building, and made the same house 15 m wide from a large scan and 3 m wide
+  // from a small one.
   const DEFAULT_HOME_LONG_M = 12
   const ftPerPx = detection?.stats?.scale_ft_per_px
               ?? detection?.measurements?.scale_ft_per_px ?? null
@@ -750,13 +790,16 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   }
   if (!scale) scale = DEFAULT_HOME_LONG_M / bldLongPx
 
-  // Centre the world on the building (not the image), so it sits at the origin.
-  const cx = _hasWalls ? (_bx0 + _bx1) / 2 : imgW / 2
-  const cy = _hasWalls ? (_by0 + _by1) / 2 : imgH / 2
+  const cx = (bounds.minX + bounds.maxX) / 2
+  const cy = (bounds.minY + bounds.maxY) / 2
 
-  // Floor sized to the building (+ small margin), not the whole image.
-  const floor_w = (_hasWalls ? bldW : imgW) * scale * 1.12
-  const floor_h = (_hasWalls ? bldH : imgH) * scale * 1.12
+  const FLOOR_MARGIN = 0.3   // metres of slab past the outer walls
+  const floor_w = (bounds.maxX - bounds.minX) * scale + FLOOR_MARGIN * 2
+  const floor_h = (bounds.maxY - bounds.minY) * scale + FLOOR_MARGIN * 2
+  // Everything that must scale with the building: camera distance, grid size,
+  // fog. Hardcoding these framed one particular building size and cropped or
+  // fogged out every other.
+  const span = Math.max(floor_w, floor_h) || 10
 
   // Reset FPP and materials state if layout changes or is reset
   useEffect(() => {
@@ -958,8 +1001,9 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         <pointLight position={[-6, 4, -6]} intensity={0.4} color="#6378ff" />
         <pointLight position={[6, 3, 6]} intensity={0.3} color="#3dd9c6" />
 
-        {/* Environment / Fog */}
-        <fog attach="fog" args={['#0a0c14', 18, 55]} />
+        {/* Environment / Fog — near/far track the building so a large plan
+            isn't swallowed by fog and a small one isn't left flat. */}
+        <fog attach="fog" args={['#0a0c14', span * 1.2 + 6, span * 4 + 20]} />
 
         {/* Render building or placeholder */}
         {confirmedLayout ? (
@@ -1031,14 +1075,14 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         {!isWalkthrough && !isCinematic && (
           <Grid
             position={[0, 0, 0]}
-            args={[28, 28]}
+            args={[span * 2, span * 2]}
             cellSize={1}
             cellThickness={0.4}
             cellColor="#1c2235"
             sectionSize={4}
             sectionThickness={0.8}
             sectionColor="#252a45"
-            fadeDistance={22}
+            fadeDistance={span * 2.5 + 10}
             fadeStrength={1}
             infiniteGrid
           />
@@ -1067,14 +1111,17 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         )}
 
         {!isWalkthrough && !isCinematic && (
-          <OrbitControls
-            makeDefault
-            minDistance={2}
-            maxDistance={22}
-            maxPolarAngle={Math.PI / 2.05}
-            enablePan={true}
-            target={[0, 0.8, 0]}
-          />
+          <>
+            <OrbitControls
+              makeDefault
+              minDistance={1}
+              maxDistance={span * 4 + 10}
+              maxPolarAngle={Math.PI / 2.05}
+              enablePan={true}
+              target={[0, 0.8, 0]}
+            />
+            <SceneFramer span={confirmedLayout ? span : 0} active={!isWalkthrough && !isCinematic} />
+          </>
         )}
       </Canvas>
     </div>
