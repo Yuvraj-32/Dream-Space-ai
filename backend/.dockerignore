@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+uploads/
+eval_out/
+ml/CubiCasa5k/
+ml/weights/
+tests/fixtures/*.png
+.pytest_cache/

@@ -6,8 +6,7 @@ import DetectionOverlay from './components/DetectionOverlay'
 import DetectionStats from './components/DetectionStats'
 import FloorPlanEditor from './components/FloorPlanEditor'
 import './index.css'
-
-const API_BASE = 'http://localhost:8001'
+import { API_BASE } from './config'
 
 // Detection engine: 'ml' (CubiCasa5k model — accurate, ~5-13s/image) or
 // 'classical' (OpenCV pipeline — fast, less accurate). Switch here.

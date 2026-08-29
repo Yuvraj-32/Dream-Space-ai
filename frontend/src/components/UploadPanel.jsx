@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import axios from 'axios'
-
-const API_BASE = 'http://localhost:8001'
+import { API_BASE } from '../config'
 
 const PIPELINE_STEPS = [
   { id: 0, label: 'Upload floor plan' },
