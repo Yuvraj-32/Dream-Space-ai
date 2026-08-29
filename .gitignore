@@ -25,6 +25,13 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
+# ── PBR texture maps (large; downloaded separately) ─────
+# CC0 scans from ambientCG. Re-fetch with:
+#   cd frontend && npm run textures
+# The manifest, licence and attribution ARE tracked — only the .jpg maps
+# are ignored. A missing map degrades to a scalar material, never a crash.
+frontend/public/textures/**/*.jpg
+
 # ── Large media / scratch ───────────────────────────────
 *.mp4
 stderr.txt
