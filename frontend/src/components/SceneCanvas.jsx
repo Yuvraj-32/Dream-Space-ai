@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useMemo } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Text, PointerLockControls } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 
 // Suppress internal react-three-fiber / Three.js deprecation warnings
 if (typeof window !== 'undefined') {
@@ -16,6 +17,14 @@ if (typeof window !== 'undefined') {
 }
 
 import MaterialSelector from './MaterialSelector'
+import { DEFAULT_MATERIAL_ID, DEFAULT_FLOOR_MATERIAL_ID } from '../materials/registry'
+import {
+  wallFaceMaterials,
+  surfaceMaterial,
+  useMaterialVersion,
+  preloadMaterials,
+} from '../materials/wallSurface'
+import { setAnisotropy } from '../materials/textureManager'
 
 /* ─── Math Helpers ───────────────────────────────────────────── */
 function distToSegment(px, pz, ax, az, bx, bz) {
@@ -141,6 +150,10 @@ function GroundGlow() {
 
 /* ─── Extruded Walls rendering with door/window gaps ──────── */
 function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, selectedSurface, surfaceCustomizations }) {
+  // Re-render as texture maps finish loading, so walls upgrade from their
+  // flat fallback to the full PBR material without a manual refresh.
+  useMaterialVersion()
+
   const wall_height = wallHeight ?? 3.0            // live-adjustable ceiling height (m)
   const wall_thickness = 0.15
   // Openings scale proportionally with the wall so they always look right as
@@ -178,10 +191,11 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
 
     const isSelected = selectedSurface?.type === 'wall' && selectedSurface?.id === wall.id
     const custom = surfaceCustomizations[wall.id] || {}
-    const color = custom.color || '#f0f2f5'
-    const roughness = custom.roughness !== undefined ? custom.roughness : 0.8
-    const metalness = custom.metalness !== undefined ? custom.metalness : 0.05
-    const clearcoat = custom.clearcoat !== undefined ? custom.clearcoat : 0
+    const materialId = custom.materialId || DEFAULT_MATERIAL_ID
+    // Per-face materials for one box, sized from its real metre dimensions so
+    // every face tiles correctly (see materials/wallSurface.js).
+    const faceMats = (segLen, segHeight) =>
+      wallFaceMaterials(materialId, custom.color, segLen, segHeight, wall_thickness)
 
     // Filter and project openings belonging to this wall
     const wallOpenings = (openings || [])
@@ -217,10 +231,10 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
             receiveShadow
             position={[sx, wall_height / 2, sz]}
             rotation={[0, -angle, 0]}
+            material={faceMats(seg_len, wall_height)}
             onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
           >
             <boxGeometry args={[seg_len, wall_height, wall_thickness]} />
-            <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} clearcoat={clearcoat} />
           </mesh>
         )
 
@@ -255,10 +269,10 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               castShadow
               position={[sx, lintel_y, sz]}
               rotation={[0, -angle, 0]}
+              material={faceMats(seg_len, lintel_h)}
               onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
             >
               <boxGeometry args={[seg_len, lintel_h, wall_thickness]} />
-              <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} clearcoat={clearcoat} />
             </mesh>
           )
 
@@ -305,10 +319,10 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               receiveShadow
               position={[sx, window_sill / 2, sz]}
               rotation={[0, -angle, 0]}
+              material={faceMats(seg_len, window_sill)}
               onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
             >
               <boxGeometry args={[seg_len, window_sill, wall_thickness]} />
-              <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} clearcoat={clearcoat} />
             </mesh>
           )
 
@@ -334,10 +348,10 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               castShadow
               position={[sx, lintel_y, sz]}
               rotation={[0, -angle, 0]}
+              material={faceMats(seg_len, lintel_h)}
               onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
             >
               <boxGeometry args={[seg_len, lintel_h, wall_thickness]} />
-              <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} clearcoat={clearcoat} />
             </mesh>
           )
 
@@ -391,10 +405,10 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
           receiveShadow
           position={[sx, wall_height / 2, sz]}
           rotation={[0, -angle, 0]}
+          material={faceMats(seg_len, wall_height)}
           onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
         >
           <boxGeometry args={[seg_len, wall_height, wall_thickness]} />
-          <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} clearcoat={clearcoat} />
         </mesh>
       )
 
@@ -709,6 +723,38 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
   return null
 }
 
+/* ─── Renderer setup: texture filtering + a neutral indoor environment ───
+ * Two things PBR materials need that the scene didn't previously provide:
+ *
+ *  - Anisotropic filtering. Walls are mostly seen at grazing angles in a
+ *    walkthrough, where trilinear filtering blurs a brick course into mush.
+ *  - Something to reflect. With only direct lights, a low roughness shows up
+ *    as one specular dot rather than as gloss, so "Glossy Tile" would read
+ *    the same as matte. RoomEnvironment is generated procedurally by Three.js
+ *    itself — no HDRI file, no network request — and is kept at low intensity
+ *    so the existing lighting look is preserved rather than replaced.
+ */
+function RendererSetup() {
+  const { gl, scene } = useThree()
+
+  useEffect(() => {
+    setAnisotropy(gl.capabilities.getMaxAnisotropy())
+
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04)
+    scene.environment = envRT.texture
+    scene.environmentIntensity = 0.35
+
+    return () => {
+      scene.environment = null
+      envRT.texture.dispose()
+      pmrem.dispose()
+    }
+  }, [gl, scene])
+
+  return null
+}
+
 /* ─── Main Canvas Wrapper ────────────────────────────────────── */
 export default function SceneCanvas({ uploadData, detection, confirmedLayout, showcaseMode, setShowcaseMode }) {
   const [isWalkthrough, setIsWalkthrough] = useState(false)
@@ -771,6 +817,32 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
     setSelectedSurface(null)
     if (!isCinematic) setCineCaption(null)
   }, [showcaseMode, isWalkthrough, isCinematic])
+
+  // Re-render as texture maps finish loading (the floor needs this too; walls
+  // subscribe inside Walls3D).
+  useMaterialVersion()
+
+  // The floor is a single plane, so it takes one material sized from its real
+  // metre dimensions. With no choice made it resolves to the internal
+  // 'floor_default' entry, which reproduces the original dark glossy finish.
+  const floorCustom = surfaceCustomizations['floor'] || {}
+  const floorMaterial = surfaceMaterial(
+    floorCustom.materialId || DEFAULT_FLOOR_MATERIAL_ID,
+    floorCustom.color,
+    floor_w,
+    floor_h
+  )
+
+  // Fetch the PBR maps for whichever materials are actually applied. Nothing
+  // is downloaded until a material is chosen, so the default scene is as light
+  // as before.
+  useEffect(() => {
+    preloadMaterials(
+      Object.values(surfaceCustomizations)
+        .map((c) => c?.materialId)
+        .filter(Boolean)
+    )
+  }, [surfaceCustomizations])
 
   // Build the cinematic tour keyframes (door-aware path + room reveals)
   const cinematicTour = useMemo(
@@ -945,6 +1017,8 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
         style={{ background: 'transparent' }}
       >
+        <RendererSetup />
+
         {/* Lighting */}
         <ambientLight intensity={isWalkthrough ? 1.05 : isCinematic ? 0.65 : 0.4} />
         <directionalLight
@@ -977,11 +1051,13 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               surfaceCustomizations={surfaceCustomizations}
             />
 
-            {/* Glossy Floor */}
-            <mesh 
-              rotation={[-Math.PI / 2, 0, 0]} 
-              position={[0, -0.005, 0]} 
+            {/* Floor — same registry, texture manager and repeat rule as the
+                walls; a plane just needs one material instead of six. */}
+            <mesh
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, -0.005, 0]}
               receiveShadow
+              material={floorMaterial}
               onClick={(e) => {
                 if (isWalkthrough || isCinematic || showcaseMode) return
                 e.stopPropagation()
@@ -989,12 +1065,6 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               }}
             >
               <planeGeometry args={[floor_w, floor_h]} />
-              <meshStandardMaterial
-                color={surfaceCustomizations['floor']?.color || "#141824"}
-                roughness={surfaceCustomizations['floor']?.roughness !== undefined ? surfaceCustomizations['floor']?.roughness : 0.22}
-                metalness={surfaceCustomizations['floor']?.metalness !== undefined ? surfaceCustomizations['floor']?.metalness : 0.4}
-                clearcoat={surfaceCustomizations['floor']?.clearcoat !== undefined ? surfaceCustomizations['floor']?.clearcoat : 0}
-              />
             </mesh>
 
             {/* Glowing selection highlight for Floor */}

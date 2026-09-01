@@ -17,7 +17,7 @@ first-person view, a cinematic tour, and live material editing.
 
 ```bash
 # Frontend
-cd frontend && npm install
+cd frontend && npm install && npm run textures   # textures = wall PBR maps
 
 # Backend
 cd backend && python -m venv venv
@@ -54,6 +54,30 @@ venv\Scripts\python -m gdown "https://drive.google.com/uc?id=1gRB7ez1e4H7a9Y09lL
 Runs CPU-only (~5–13s/image). See `backend/ML_UPGRADE_PLAN.md` for details.
 The frontend requests the `ml` engine by default (`DETECT_ENGINE` in
 `frontend/src/App.jsx`); it falls back to `classical` if the model is absent.
+
+## Wall materials (PBR textures)
+
+The 3D walls are textured from real CC0 PBR scans (ambientCG), not generated
+maps. The files live in `frontend/public/textures/<material>/` as
+`color.jpg` + `normal.jpg` (OpenGL convention) + `roughness.jpg`; see
+`frontend/public/textures/LICENSE.md` for the exact asset list, sources, and
+each scan's real-world size.
+
+The `.jpg` maps are **git-ignored** (same convention as the ML weights) — the
+manifest and licence are tracked, the binaries are fetched on demand:
+
+```bash
+cd frontend && npm run textures
+```
+
+The script has no npm dependencies and skips anything already present. Missing
+maps are non-fatal — a material without them falls back to its scalar
+roughness/metalness and logs one warning, so a fresh clone still runs.
+
+The material library itself is `frontend/src/materials/`:
+`registry.js` (what each material is, including its physical tile size),
+`textureManager.js` (loading + per-repeat texture caching),
+`wallSurface.js` (per-face tiling for a wall box).
 
 ## Tests
 

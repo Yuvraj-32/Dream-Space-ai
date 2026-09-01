@@ -1009,4 +1009,250 @@ html, body, #root {
   background: #0b0d19;
 }
 
+/* ── Material library additions ───────────────────────────────────────
+   Purely additive. The existing .preset-btn rule is left untouched; the
+   row layout is applied through a more specific selector so nothing else
+   that uses .preset-btn is affected. */
+
+.preset-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preset-group + .preset-group {
+  margin-top: 10px;
+}
+
+.preset-group-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.material-presets-list .preset-btn {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.preset-thumb {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
+}
+
+.preset-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tint-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.tint-disabled-note {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+/* The library grew from 6 to 20 materials, so the list has to scroll inside
+   the panel instead of running off the bottom of the viewport and taking the
+   footer with it. Header and footer stay pinned. */
+.material-selector-panel {
+  max-height: calc(100% - 32px);
+}
+
+.selector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.selector-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.selector-body::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: 3px;
+}
+
+/* ── My Materials (user uploads) ─────────────────────────────────────
+   Additive: reuses .preset-btn / .preset-thumb so uploaded materials look
+   and behave exactly like built-in ones. */
+
+.custom-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.custom-row .preset-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.custom-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.icon-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn.danger:hover {
+  border-color: #e05252;
+  color: #ff8a8a;
+}
+
+.upload-material-btn {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.18s ease;
+}
+
+.upload-material-btn:hover {
+  background: var(--bg-card-hover);
+  border-style: solid;
+}
+
+.upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+}
+
+.upload-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rename-input,
+.type-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 5px 7px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.type-select {
+  width: 100%;
+}
+
+.upload-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.confirm-btn-small {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.upload-error {
+  font-size: 10px;
+  color: #ff8a8a;
+  margin-top: 6px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.setting-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.setting-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  min-width: 38px;
+  text-align: right;
+}
+
+.rotation-group {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.rot-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.rot-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 
