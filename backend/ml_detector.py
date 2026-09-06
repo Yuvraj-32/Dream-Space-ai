@@ -49,6 +49,11 @@ _ICON_OFFSET = 21 + 12
 _WALL_CLASS = 2          # in the room channel group
 _ICON_WINDOW = 1         # in the icon channel group
 _ICON_DOOR = 2
+_ICON_CLOSET = 3         # built-in closet/wardrobe icon
+_ICON_TOILET = 5
+_ICON_SINK = 6
+_ICON_BATHTUB = 9
+_BATH_FIXTURE_ICONS = (_ICON_TOILET, _ICON_SINK, _ICON_BATHTUB)
 
 # Human-readable room labels (rooms channel), bonus over the classical path.
 _ROOM_NAMES = [
@@ -57,6 +62,14 @@ _ROOM_NAMES = [
 ]
 # Classes that count as real enclosed rooms (exclude bg/outdoor/wall/railing).
 _ROOM_CLASSES = {3, 4, 5, 6, 7, 9, 10, 11}
+# "Definite" room classes carry real semantic meaning; storage(9) and
+# undefined(11) are the model's catch-all buckets. On noisy plans (rendered/
+# colored, not clean CAD) the model scatters a lot of low-confidence
+# undefined/storage pixels everywhere, which can outnumber a room's real
+# class even when that real class is clearly the right answer — so the vote
+# below checks definite classes FIRST and only falls back to the catch-all
+# when no definite class has a meaningful share of the room.
+_DEFINITE_ROOM_CLASSES = {3, 4, 5, 6, 7, 10}
 
 _model = None  # singleton
 
@@ -208,15 +221,6 @@ def _wall_centerline(p):
     return x, int(ys.min()), x, int(ys.max()), float(xs.max() - xs.min())
 
 
-def _iter_shapely(g):
-    if g.geom_type == "Polygon":
-        yield g
-    elif hasattr(g, "geoms"):
-        for sub in g.geoms:
-            if sub.geom_type == "Polygon":
-                yield sub
-
-
 def _postprocess(prediction, nw, nh):
     """Run CubiCasa's junction post-processing → (walls, rooms, openings) as
     legacy-schema dicts at the working resolution. Raises on failure so the
@@ -227,7 +231,13 @@ def _postprocess(prediction, nw, nh):
     from floortrans.post_prosessing import split_prediction, get_polygons
 
     heatmaps, rooms_seg, icons_seg = split_prediction(prediction, (nh, nw), [21, 12, 11])
-    polygons, types, room_polys, room_types = get_polygons(
+    # Per-pixel argmax masks for room typing (see _rooms_from_geometry): the
+    # boundary comes from OUR walls below, not from get_polygons' own
+    # wall-junction grid (room_polys/room_types, intentionally unused here —
+    # see the docstring on _rooms_from_geometry for why).
+    rooms_pred = np.argmax(rooms_seg, axis=0)
+    icons_pred = np.argmax(icons_seg, axis=0)
+    polygons, types, _room_polys, _room_types = get_polygons(
         (heatmaps, rooms_seg, icons_seg), 0.2, [_ICON_WINDOW, _ICON_DOOR]
     )
 
@@ -250,44 +260,12 @@ def _postprocess(prediction, nw, nh):
             "thickness": round(th, 2),
         })
 
-    # ── Building envelope (from wall endpoints) for out-of-building filter ──
-    if walls:
-        bx = [w["x1"] for w in walls] + [w["x2"] for w in walls]
-        by = [w["y1"] for w in walls] + [w["y2"] for w in walls]
-        env = (min(bx), min(by), max(bx), max(by))
-    else:
-        env = (0, 0, nw, nh)
-
-    # ── Rooms (shapely polygons → dicts; drop outdoor + out-of-envelope) ──
-    rooms = []
-    rid = 0
-    for rp, rt in zip(room_polys, room_types):
-        cls = rt.get("class", 0)
-        if cls in (0, 1):        # background / outdoor
-            continue
-        name = _ROOM_NAMES[cls] if cls < len(_ROOM_NAMES) else "room"
-        for poly in _iter_shapely(rp):
-            xy = np.array(poly.exterior.coords, dtype=np.int32)
-            if len(xy) < 3:
-                continue
-            x, y, ww, hh = cv2.boundingRect(xy)
-            ccx, ccy = x + ww / 2, y + hh / 2
-            # Reject rooms whose centroid falls outside the wall envelope.
-            if not (env[0] - 10 <= ccx <= env[2] + 10 and env[1] - 10 <= ccy <= env[3] + 10):
-                continue
-            area = float(cv2.contourArea(xy))
-            if area < nw * nh * 0.0015:
-                continue
-            approx = cv2.approxPolyDP(xy.reshape(-1, 1, 2), 0.01 * cv2.arcLength(xy, True), True)
-            rooms.append({
-                "id": f"room_{rid}",
-                "type": name,
-                "area": round(area, 1),
-                "bbox": {"x": int(x), "y": int(y), "w": int(ww), "h": int(hh)},
-                "centroid": {"x": int(round(ccx)), "y": int(round(ccy))},
-                "polygon": [[int(pt[0][0]), int(pt[0][1])] for pt in approx],
-            })
-            rid += 1
+    # ── Rooms: boundaries from OUR walls (flood-fill), types from CubiCasa's
+    # per-pixel predictions sampled inside each region. See
+    # _rooms_from_geometry's docstring for why this replaced get_polygons'
+    # own wall-junction room grid (it could merge two real rooms into one
+    # blob whenever a partition wall's junction wasn't cleanly detected).
+    rooms = _rooms_from_geometry(walls, rooms_pred, icons_pred, nw, nh)
 
     # ── Openings (icon polygons: window=1, door=2) → nearest wall ──
     openings = []
@@ -449,6 +427,124 @@ def _walls_from_mask(wall_mask, w, h):
     return walls
 
 
+def _rooms_from_geometry(walls, rooms_pred, icons_pred, w, h):
+    """Derive room BOUNDARIES from our own validated wall geometry, then read
+    each room's TYPE off CubiCasa's per-pixel class + fixture-icon evidence.
+
+    Why not trust CubiCasa's own room polygons directly (get_polygons /
+    merge_rectangles): that grid is built from WALL-JUNCTION points, so a
+    real partition wall whose junction wasn't cleanly detected (e.g. a short
+    stub between a closet and a washroom) leaves no dividing grid line —
+    the two genuinely separate rooms then merge into one oversized
+    "undefined" polygon, and a room's own per-pixel class can also come out
+    fragmented (furniture/occlusion) into several same-type polygons that
+    should really be one room. Flood-filling OUR walls instead guarantees
+    exactly one non-overlapping region per enclosed space, matching what the
+    2D editor and the 3D model already treat as "a room" — geometry and
+    semantics are decoupled: boundary comes from walls, label comes from a
+    per-region majority vote (+ fixture-icon overrides) inside that boundary.
+    """
+    # A thin, FIXED sealing thickness — not each wall's real detected
+    # thickness. This raster's only job is "is a wall here, for flood-fill
+    # purposes"; it does not need to match real wall width. The 3D renderer
+    # draws every wall at one flat thickness regardless of its detected
+    # value, so carving room boundaries out of the (often much thicker, and
+    # variable per-wall) detected thickness pulls the floor polygon back
+    # well past where the rendered wall's inner face actually sits — a
+    # visible gap between floor and wall in 3D. A thin, uniform seal keeps
+    # the boundary right at the wall centerline instead, so the floor runs
+    # under the wall's real footprint (invisible, since the wall covers it)
+    # rather than stopping short of it.
+    canvas = np.zeros((h, w), dtype=np.uint8)
+    for wall in walls:
+        cv2.line(canvas, (wall["x1"], wall["y1"]), (wall["x2"], wall["y2"]), 255, 5)
+
+    # Moderate dilate + close: on harder (rendered/colored) plans a real
+    # partition wall can still have a genuine few-pixel detection gap even
+    # after junction healing, and cutting this too thin lets two real rooms
+    # flood into one (worse than a slightly larger inset). This is a
+    # deliberate middle ground — snugger than the original heavy seal, but
+    # not so thin that a real gap goes unbridged.
+    kd = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    closed = cv2.dilate(canvas, kd, iterations=1)
+    closed = cv2.morphologyEx(closed, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+
+    inverted = cv2.bitwise_not(closed)
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(inverted, connectivity=8)
+
+    min_area = w * h * 0.0015   # drop slivers/noise
+    max_area = w * h * 0.82     # drop the outer background region
+    margin = max(6, min(w, h) // 60)
+
+    rooms = []
+    rid = 0
+    for lb in range(1, n):  # 0 = background label from connectedComponents
+        area = float(stats[lb, cv2.CC_STAT_AREA])
+        if area < min_area or area > max_area:
+            continue
+        x = int(stats[lb, cv2.CC_STAT_LEFT]); y = int(stats[lb, cv2.CC_STAT_TOP])
+        rw = int(stats[lb, cv2.CC_STAT_WIDTH]); rh = int(stats[lb, cv2.CC_STAT_HEIGHT])
+        # A region touching the image border is outside the building envelope.
+        if x <= margin or y <= margin or (x + rw) >= w - margin or (y + rh) >= h - margin:
+            continue
+
+        region = labels == lb
+        mask = region.astype(np.uint8) * 255
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            continue
+        cnt = max(cnts, key=cv2.contourArea)
+        approx = cv2.approxPolyDP(cnt, 0.01 * cv2.arcLength(cnt, True), True)
+        if len(approx) < 3:
+            continue
+
+        # Base type: vote of the room-class prediction inside this exact
+        # region, checking DEFINITE classes (kitchen/living/bedroom/bath/
+        # entry/garage) first. On noisy (rendered/colored) plans the model
+        # scatters undefined/storage pixels everywhere, and those catch-all
+        # classes can out-count a real, clearly-correct class — so only fall
+        # back to them when no definite class clears a low bar (~8% of the
+        # region), rather than letting raw pixel count alone decide.
+        classes, counts = np.unique(rooms_pred[region], return_counts=True)
+        by_class = {int(c): int(n_) for c, n_ in zip(classes, counts)}
+        valid_total = sum(n_ for c, n_ in by_class.items() if c in _ROOM_CLASSES)
+        definite = [(c, n_) for c, n_ in by_class.items() if c in _DEFINITE_ROOM_CLASSES]
+        best_definite = max(definite, key=lambda cc: cc[1]) if definite else None
+        if best_definite and valid_total > 0 and best_definite[1] / valid_total >= 0.08:
+            type_name = _ROOM_NAMES[best_definite[0]]
+        else:
+            catchall = [(c, n_) for c, n_ in by_class.items() if c in (9, 11)]
+            if catchall:
+                dominant = max(catchall, key=lambda cc: cc[1])[0]
+                type_name = _ROOM_NAMES[dominant]
+            else:
+                type_name = "undefined"
+
+        # Fixture-icon overrides: strong, direct evidence beats the coarse
+        # per-pixel class vote (which frequently comes back "undefined" for
+        # bathrooms/closets even though the fixtures are clearly present).
+        region_icons = icons_pred[region]
+        bath_px = int(np.count_nonzero(np.isin(region_icons, _BATH_FIXTURE_ICONS)))
+        closet_px = int(np.count_nonzero(region_icons == _ICON_CLOSET))
+        if bath_px > area * 0.015:
+            type_name = "bath"
+        elif closet_px > area * 0.12 and type_name in ("undefined", "storage"):
+            type_name = "closet"
+
+        rooms.append({
+            "id": f"room_{rid}",
+            "type": type_name,
+            "area": round(area, 1),
+            "bbox": {"x": x, "y": y, "w": rw, "h": rh},
+            "centroid": {"x": int(cents[lb][0]), "y": int(cents[lb][1])},
+            "polygon": [[int(p[0][0]), int(p[0][1])] for p in approx],
+        })
+        rid += 1
+
+    rooms.sort(key=lambda r: r["area"], reverse=True)
+    return rooms
+
+
 def _rooms_from_pred(rooms_pred, w, h):
     """Connected components of room-class pixels → labeled room polygons."""
     room_area_min = w * h * 0.002
@@ -532,38 +628,6 @@ def _openings_from_masks(icons_pred, walls, w, h):
     return openings
 
 
-def _reclassify_wardrobes(rooms, openings, w, h):
-    """Retag small, windowless rooms entered by 2+ doors as walk-in wardrobes.
-
-    On a plan, a walk-in wardrobe is a small enclosed space with two folding-
-    door symbols ('v v') and no window — CubiCasa detects it as a generic
-    (undefined/storage) room. Size + door/window counts separate it cleanly
-    from a small bathroom or store (which have a single door), so those keep
-    their type.
-    """
-    area_cap = w * h * 0.025          # wardrobes are small
-    margin = max(10, min(w, h) // 40)  # opening-to-room proximity
-    doors = [o for o in openings if o["type"] == "door"]
-    wins = [o for o in openings if o["type"] == "window"]
-
-    def count_near(pts, b):
-        return sum(
-            1 for o in pts
-            if (b["x"] - margin) <= o["x"] <= (b["x"] + b["w"] + margin)
-            and (b["y"] - margin) <= o["y"] <= (b["y"] + b["h"] + margin)
-        )
-
-    for rm in rooms:
-        if rm["type"] not in ("undefined", "storage", "other"):
-            continue
-        if rm["area"] > area_cap:
-            continue
-        b = rm["bbox"]
-        if count_near(doors, b) >= 2 and count_near(wins, b) == 0:
-            rm["type"] = "wardrobe"
-    return rooms
-
-
 def _scale_results(walls, rooms, openings, inv):
     """Scale all coordinates from working resolution back to original image."""
     if inv == 1.0:
@@ -620,7 +684,6 @@ def detect_floor_plan_ml(image_path: str) -> dict[str, Any]:
         walls, rooms, openings, pw, ph = _detect_skeleton(img)
 
     inv = orig_w / pw  # aspect preserved by multiple-of-32 rounding
-    rooms = _reclassify_wardrobes(rooms, openings, pw, ph)
     walls, rooms, openings = _scale_results(walls, rooms, openings, inv)
 
     stats = {
@@ -633,7 +696,7 @@ def detect_floor_plan_ml(image_path: str) -> dict[str, Any]:
         "openings_detected": len(openings),
         "doors": sum(1 for o in openings if o["type"] == "door"),
         "windows": sum(1 for o in openings if o["type"] == "window"),
-        "wardrobes": sum(1 for r in rooms if r["type"] == "wardrobe"),
+        "closets": sum(1 for r in rooms if r["type"] == "closet"),
     }
     return {
         "image_size": {"width": orig_w, "height": orig_h},

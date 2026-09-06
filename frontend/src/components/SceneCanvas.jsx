@@ -190,12 +190,29 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
     const length = rawLen + 2 * ext
 
     const isSelected = selectedSurface?.type === 'wall' && selectedSurface?.id === wall.id
-    const custom = surfaceCustomizations[wall.id] || {}
-    const materialId = custom.materialId || DEFAULT_MATERIAL_ID
-    // Per-face materials for one box, sized from its real metre dimensions so
-    // every face tiles correctly (see materials/wallSurface.js).
-    const faceMats = (segLen, segHeight) =>
-      wallFaceMaterials(materialId, custom.color, segLen, segHeight, wall_thickness)
+    // Each wall stores an independent customization per visible side — 'front'
+    // (local +Z) and 'back' (local -Z) — so texturing one face never touches
+    // the other. wallFaceMaterials already returns a 6-entry BoxGeometry
+    // material array per side; we splice the two arrays together, taking the
+    // ±Z (room-facing) slot from each side and the thin edge/cap faces from
+    // whichever side is set (front wins) so they aren't left untextured.
+    const wallCustom = surfaceCustomizations[wall.id] || {}
+    const frontCustom = wallCustom.front || {}
+    const backCustom = wallCustom.back || {}
+    const faceMats = (segLen, segHeight) => {
+      const frontArr = wallFaceMaterials(
+        frontCustom.materialId || DEFAULT_MATERIAL_ID, frontCustom.color, segLen, segHeight, wall_thickness
+      )
+      const backArr = wallFaceMaterials(
+        backCustom.materialId || DEFAULT_MATERIAL_ID, backCustom.color, segLen, segHeight, wall_thickness
+      )
+      return [frontArr[0], frontArr[1], frontArr[2], frontArr[3], frontArr[4], backArr[5]]
+    }
+    // BoxGeometry's built-in material groups make face.materialIndex tell us
+    // exactly which of the 6 faces was clicked: 4 = local +Z ('front' side),
+    // 5 = local -Z ('back' side); the thin edge/cap faces (0-3) default to
+    // 'front' so a click anywhere still selects a real, textureable side.
+    const sideFromClick = (e) => (e.face?.materialIndex === 5 ? 'back' : 'front')
 
     // Filter and project openings belonging to this wall
     const wallOpenings = (openings || [])
@@ -232,7 +249,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
             position={[sx, wall_height / 2, sz]}
             rotation={[0, -angle, 0]}
             material={faceMats(seg_len, wall_height)}
-            onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
+            onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id, sideFromClick(e)); }}
           >
             <boxGeometry args={[seg_len, wall_height, wall_thickness]} />
           </mesh>
@@ -270,7 +287,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               position={[sx, lintel_y, sz]}
               rotation={[0, -angle, 0]}
               material={faceMats(seg_len, lintel_h)}
-              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
+              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id, sideFromClick(e)); }}
             >
               <boxGeometry args={[seg_len, lintel_h, wall_thickness]} />
             </mesh>
@@ -320,7 +337,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               position={[sx, window_sill / 2, sz]}
               rotation={[0, -angle, 0]}
               material={faceMats(seg_len, window_sill)}
-              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
+              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id, sideFromClick(e)); }}
             >
               <boxGeometry args={[seg_len, window_sill, wall_thickness]} />
             </mesh>
@@ -349,7 +366,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               position={[sx, lintel_y, sz]}
               rotation={[0, -angle, 0]}
               material={faceMats(seg_len, lintel_h)}
-              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
+              onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id, sideFromClick(e)); }}
             >
               <boxGeometry args={[seg_len, lintel_h, wall_thickness]} />
             </mesh>
@@ -406,7 +423,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
           position={[sx, wall_height / 2, sz]}
           rotation={[0, -angle, 0]}
           material={faceMats(seg_len, wall_height)}
-          onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id); }}
+          onClick={(e) => { e.stopPropagation(); onSelectWall?.(wall.id, sideFromClick(e)); }}
         >
           <boxGeometry args={[seg_len, wall_height, wall_thickness]} />
         </mesh>
@@ -428,6 +445,78 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
   })
 
   return <>{meshes}</>
+}
+
+/* ─── Per-Room Floors ──────────────────────────────────────────
+ * Each detected room gets its own floor patch, shaped to the room's real
+ * polygon and textured independently — so a kitchen can have tile while the
+ * bedroom next to it has hardwood. Sits just above the single base floor
+ * plane (which stays as a fallback under hallways / any area outside a
+ * detected room), so nothing shows through if a room polygon has a gap.
+ */
+function RoomFloors({ rooms, cx, cy, scale, onSelectRoom, selectedSurface, surfaceCustomizations }) {
+  // Re-render as texture maps finish loading or the custom library changes.
+  useMaterialVersion()
+
+  if (!rooms || rooms.length === 0) return null
+
+  return (
+    <>
+      {rooms.map((room) => {
+        const poly = room.polygon
+        if (!poly || poly.length < 3) return null
+
+        // Build the room's true footprint as a flat Shape. ShapeGeometry lies
+        // in the shape's local XY plane; rotating that mesh -90° about X to
+        // lay it flat sends local (x, y) -> world (x, 0, -y) (standard
+        // rotation-about-X). Negating the Z here cancels that flip, so the
+        // shape lands under the SAME wall coordinates used elsewhere (Walls3D,
+        // the cinematic tour): worldX = (px - cx) * scale, worldZ = (py - cy) * scale.
+        const shape = new THREE.Shape()
+        poly.forEach(([px, py], i) => {
+          const x = (px - cx) * scale
+          const negZ = -((py - cy) * scale)
+          if (i === 0) shape.moveTo(x, negZ)
+          else shape.lineTo(x, negZ)
+        })
+        shape.closePath()
+
+        const key = `room:${room.id}`
+        const custom = surfaceCustomizations[key] || {}
+        const materialId = custom.materialId || DEFAULT_FLOOR_MATERIAL_ID
+        // ShapeGeometry auto-generates UVs spanning 0..1 across the shape's
+        // own bounding box, in the same metre units the shape was built with —
+        // so the room's bbox (converted to metres) is the correct size to hand
+        // the tiling calculation for a real-world-accurate repeat.
+        const wMetres = Math.max((room.bbox?.w || 1) * scale, 0.05)
+        const dMetres = Math.max((room.bbox?.h || 1) * scale, 0.05)
+        const material = surfaceMaterial(materialId, custom.color, wMetres, dMetres)
+
+        const isSelected = selectedSurface?.type === 'room' && selectedSurface?.id === room.id
+
+        return (
+          <group key={key}>
+            <mesh
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[0, -0.003, 0]}
+              receiveShadow
+              material={material}
+              onClick={(e) => { e.stopPropagation(); onSelectRoom?.(room.id) }}
+            >
+              <shapeGeometry args={[shape]} />
+            </mesh>
+
+            {isSelected && (
+              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.0025, 0]}>
+                <shapeGeometry args={[shape]} />
+                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+              </mesh>
+            )}
+          </group>
+        )
+      })}
+    </>
+  )
 }
 
 function PlayerController({ walls, openings, cx, cy, scale, rooms, active }) {
@@ -837,11 +926,21 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   // is downloaded until a material is chosen, so the default scene is as light
   // as before.
   useEffect(() => {
-    preloadMaterials(
-      Object.values(surfaceCustomizations)
-        .map((c) => c?.materialId)
-        .filter(Boolean)
-    )
+    // Walls store one customization per side ({front, back}); floor and each
+    // room floor ('room:<id>') are single flat objects. Flatten all three
+    // shapes to the material ids actually in play so preloading covers
+    // every independently-textured surface.
+    const ids = []
+    Object.entries(surfaceCustomizations).forEach(([key, val]) => {
+      if (!val) return
+      if (key === 'floor' || key.startsWith('room:')) {
+        if (val.materialId) ids.push(val.materialId)
+      } else {
+        if (val.front?.materialId) ids.push(val.front.materialId)
+        if (val.back?.materialId) ids.push(val.back.materialId)
+      }
+    })
+    preloadMaterials(ids)
   }, [surfaceCustomizations])
 
   // Build the cinematic tour keyframes (door-aware path + room reveals)
@@ -852,19 +951,52 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
 
   function handleCustomizationChange(customization) {
     if (!selectedSurface) return
-    const targetId = selectedSurface.type === 'floor' ? 'floor' : selectedSurface.id
+    if (selectedSurface.type === 'floor') {
+      setSurfaceCustomizations(prev => ({ ...prev, floor: customization }))
+      return
+    }
+    if (selectedSurface.type === 'room') {
+      // Each room's floor is independent, keyed off the base 'floor' entry
+      // (which still covers anything outside a detected room polygon).
+      const key = `room:${selectedSurface.id}`
+      setSurfaceCustomizations(prev => ({ ...prev, [key]: customization }))
+      return
+    }
+    // Wall: only the clicked side's entry is touched — the other side of the
+    // same wall keeps whatever it already had.
+    const { id, side } = selectedSurface
     setSurfaceCustomizations(prev => ({
       ...prev,
-      [targetId]: customization
+      [id]: { ...(prev[id] || {}), [side]: customization }
     }))
   }
 
   function handleCustomizationReset() {
     if (!selectedSurface) return
-    const targetId = selectedSurface.type === 'floor' ? 'floor' : selectedSurface.id
+    if (selectedSurface.type === 'floor') {
+      setSurfaceCustomizations(prev => {
+        const next = { ...prev }
+        delete next.floor
+        return next
+      })
+      return
+    }
+    if (selectedSurface.type === 'room') {
+      const key = `room:${selectedSurface.id}`
+      setSurfaceCustomizations(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      return
+    }
+    const { id, side } = selectedSurface
     setSurfaceCustomizations(prev => {
+      const wallSides = { ...(prev[id] || {}) }
+      delete wallSides[side]
       const next = { ...prev }
-      delete next[targetId]
+      if (Object.keys(wallSides).length === 0) delete next[id]
+      else next[id] = wallSides
       return next
     })
   }
@@ -947,7 +1079,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
 
           <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: '1.4' }}>
             {!isWalkthrough
-              ? 'Click any wall/floor to customize PBR surface · Orbit drag · Drag the slider for live height'
+              ? 'Click a wall side/floor to customize PBR surface (each side of a wall is independent) · Orbit drag · Drag the slider for live height'
               : 'Click viewport to capture mouse · WASD to walk · Move mouse to look · Esc to exit'
             }
           </div>
@@ -1003,7 +1135,13 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
       {selectedSurface && !isWalkthrough && !isCinematic && !showcaseMode && (
         <MaterialSelector
           selectedSurface={selectedSurface}
-          currentCustomization={surfaceCustomizations[selectedSurface.type === 'floor' ? 'floor' : selectedSurface.id]}
+          currentCustomization={
+            selectedSurface.type === 'floor'
+              ? surfaceCustomizations['floor']
+              : selectedSurface.type === 'room'
+              ? surfaceCustomizations[`room:${selectedSurface.id}`]
+              : surfaceCustomizations[selectedSurface.id]?.[selectedSurface.side]
+          }
           onChange={handleCustomizationChange}
           onReset={handleCustomizationReset}
           onClose={() => setSelectedSurface(null)}
@@ -1046,7 +1184,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               cy={cy}
               scale={scale}
               wallHeight={wallHeight}
-              onSelectWall={setSelectedSurface ? (id) => setSelectedSurface({ type: 'wall', id }) : null}
+              onSelectWall={setSelectedSurface ? (id, side) => setSelectedSurface({ type: 'wall', id, side }) : null}
               selectedSurface={selectedSurface}
               surfaceCustomizations={surfaceCustomizations}
             />
@@ -1074,6 +1212,23 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
                 <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.25} transparent />
               </mesh>
             )}
+
+            {/* Per-room floor patches — each room tiles independently, sitting
+                just above the base floor plane. */}
+            <RoomFloors
+              rooms={detection?.rooms}
+              cx={cx}
+              cy={cy}
+              scale={scale}
+              onSelectRoom={(id) => {
+                if (isWalkthrough || isCinematic || showcaseMode) return
+                const room = detection?.rooms?.find(r => r.id === id)
+                const roomType = room?.type && room.type !== 'undefined' ? room.type : null
+                setSelectedSurface({ type: 'room', id, roomType })
+              }}
+              selectedSurface={selectedSurface}
+              surfaceCustomizations={surfaceCustomizations}
+            />
 
             {/* Soft border indicator */}
             {!isWalkthrough && !isCinematic && (
