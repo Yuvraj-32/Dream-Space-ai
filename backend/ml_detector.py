@@ -212,13 +212,28 @@ def _predict_full(img_bgr, max_dim=1024):
 
 
 def _wall_centerline(p):
-    """4-corner wall polygon → (x1,y1,x2,y2, thickness) centerline."""
-    xs = p[:, 0].astype(float); ys = p[:, 1].astype(float)
-    if (xs.max() - xs.min()) >= (ys.max() - ys.min()):
-        y = int(round((ys.min() + ys.max()) / 2))
-        return int(xs.min()), y, int(xs.max()), y, float(ys.max() - ys.min())
-    x = int(round((xs.min() + xs.max()) / 2))
-    return x, int(ys.min()), x, int(ys.max()), float(xs.max() - xs.min())
+    """4-corner wall polygon → (x1,y1,x2,y2, thickness) centerline.
+
+    Uses the polygon's own minimum-area oriented rect rather than its
+    axis-aligned bounding box. get_polygons() sometimes returns a wall quad
+    that's slightly skewed near a junction (not a perfect rectangle); an
+    axis-aligned bbox around a skewed quad is larger than the quad itself,
+    which stretches the centerline past the wall's real endpoint into the
+    next room — the "wall extends where it shouldn't" corner artifact.
+    minAreaRect finds the quad's actual long axis, so the centerline only
+    spans the wall's real footprint.
+    """
+    rect = cv2.minAreaRect(p.astype(np.float32))
+    (cx, cy), (rw, rh), angle = rect
+    if rw < rh:
+        rw, rh = rh, rw
+        angle += 90.0
+    theta = math.radians(angle)
+    hl = rw / 2.0
+    dx, dy = math.cos(theta) * hl, math.sin(theta) * hl
+    x1, y1 = cx - dx, cy - dy
+    x2, y2 = cx + dx, cy + dy
+    return int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2)), float(rh)
 
 
 def _postprocess(prediction, nw, nh):
@@ -247,10 +262,21 @@ def _postprocess(prediction, nw, nh):
     raw = [r for r in raw if _len(r[0][0], r[0][1], r[0][2], r[0][3]) > 3]
     thicknesses = [r[0][4] for r in raw]
     seglist = [(r[0][0], r[0][1], r[0][2], r[0][3]) for r in raw]
+    # get_polygons' wall quads are rarely exactly axis-aligned — even a degree
+    # or two of tilt, combined with the frontend's fixed corner-fill extension
+    # (SceneCanvas.jsx), shows up as a visible spike poking past a corner
+    # where this wall meets a properly orthogonal neighbor. Snap near-axis
+    # walls to exact 0°/90° (same as the skeleton fallback path already
+    # does), then re-close any junction gaps the snap introduces.
+    if seglist:
+        heal_tol = max(14, min(nw, nh) // 40)
+        seglist = _final_angle_snap(seglist, thresh=7)
+        seglist = _heal_junctions(seglist, tol=heal_tol)
     _, wall_types = _classify_wall_types(seglist, thicknesses) if seglist else ([], [])
     walls = []
     for idx, (seg, _cls) in enumerate(raw):
-        x1, y1, x2, y2, th = seg
+        th = seg[4]
+        x1, y1, x2, y2 = seglist[idx]
         walls.append({
             "id": f"wall_{idx}",
             "x1": x1, "y1": y1, "x2": x2, "y2": y2,

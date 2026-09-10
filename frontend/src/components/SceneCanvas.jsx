@@ -149,7 +149,7 @@ function GroundGlow() {
 }
 
 /* ─── Extruded Walls rendering with door/window gaps ──────── */
-function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, selectedSurface, surfaceCustomizations }) {
+function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, selectedSurface, surfaceCustomizations, showDoors, doorOpenPct }) {
   // Re-render as texture maps finish loading, so walls upgrade from their
   // flat fallback to the full PBR material without a manual refresh.
   useMaterialVersion()
@@ -326,6 +326,34 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               </mesh>
             </group>
           )
+
+          // Door leaf — hinged at the opening's start edge (op.t1), swings
+          // open by doorOpenPct (0 = flush/closed, 100 = ~80° open).
+          if (showDoors) {
+            const leaf_w = Math.max(0.1, seg_len - 0.09)
+            const leaf_h = door_height - 0.03
+            const leaf_th = Math.min(wall_thickness * 0.4, 0.05)
+            const swingRad = ((doorOpenPct || 0) / 100) * (80 * Math.PI / 180)
+            const hingeX = p1x + op.t1 * ux
+            const hingeZ = p1z + op.t1 * uz
+            meshes.push(
+              <group
+                key={`${wall.id}-door-leaf-${op.id}`}
+                position={[hingeX, door_height / 2, hingeZ]}
+                rotation={[0, -angle - swingRad, 0]}
+              >
+                <mesh castShadow receiveShadow position={[leaf_w / 2 + 0.02, 0, 0]}>
+                  <boxGeometry args={[leaf_w, leaf_h, leaf_th]} />
+                  <meshStandardMaterial color="#6b4226" roughness={0.55} metalness={0.05} />
+                </mesh>
+                {/* Handle */}
+                <mesh position={[leaf_w - 0.08, 0, leaf_th / 2 + 0.015]}>
+                  <boxGeometry args={[0.03, 0.03, 0.03]} />
+                  <meshStandardMaterial color="#d4b16a" roughness={0.3} metalness={0.7} />
+                </mesh>
+              </group>
+            )
+          }
         } else {
           // Window
           // Sill below window
@@ -852,6 +880,8 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   const [surfaceCustomizations, setSurfaceCustomizations] = useState({})
   const [cineCaption, setCineCaption] = useState(null)   // {name, dims} during reveals
   const [wallHeight, setWallHeight] = useState(3.0)      // live-adjustable ceiling height (m)
+  const [showDoors, setShowDoors] = useState(true)       // toggle door leaf visibility
+  const [doorOpenPct, setDoorOpenPct] = useState(0)       // 0 = closed, 100 = fully open
 
   const imgW = detection?.image_size?.width || 1000
   const imgH = detection?.image_size?.height || 1000
@@ -1086,6 +1116,52 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         </div>
       )}
 
+      {/* Doors control panel */}
+      {confirmedLayout && !showcaseMode && !isWalkthrough && !isCinematic && (
+        <div style={{
+          position: 'absolute',
+          bottom: 64,
+          right: 16,
+          zIndex: 10,
+          background: 'rgba(10, 12, 20, 0.95)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: 8,
+          padding: '12px 16px',
+          color: '#ffffff',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          width: 220,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          fontFamily: 'Inter, sans-serif'
+        }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={showDoors}
+              onChange={e => setShowDoors(e.target.checked)}
+              style={{ accentColor: '#3dd9c6', cursor: 'pointer' }}
+            />
+            🚪 Show doors
+          </label>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: showDoors ? 1 : 0.4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
+              <span style={{ color: '#c7cce0' }}>Door opening</span>
+              <span style={{ fontWeight: 700, color: '#3dd9c6' }}>{doorOpenPct}%</span>
+            </div>
+            <input
+              type="range" min="0" max="100" step="5"
+              value={doorOpenPct}
+              disabled={!showDoors}
+              onChange={e => setDoorOpenPct(parseInt(e.target.value, 10))}
+              style={{ width: '100%', accentColor: '#3dd9c6', cursor: showDoors ? 'pointer' : 'not-allowed' }}
+              aria-label="Door opening amount"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Showcase HUD Overlay */}
       {confirmedLayout && showcaseMode && (
         <div className="showcase-hud">
@@ -1187,6 +1263,8 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               onSelectWall={setSelectedSurface ? (id, side) => setSelectedSurface({ type: 'wall', id, side }) : null}
               selectedSurface={selectedSurface}
               surfaceCustomizations={surfaceCustomizations}
+              showDoors={showDoors}
+              doorOpenPct={doorOpenPct}
             />
 
             {/* Floor — same registry, texture manager and repeat rule as the
