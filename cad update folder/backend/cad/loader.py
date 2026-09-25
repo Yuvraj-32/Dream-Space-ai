@@ -79,6 +79,33 @@ def _fast_bbox(e):
     return (box.extmin.x, box.extmin.y, box.extmax.x, box.extmax.y)
 
 
+def _bulge_arc(e):
+    """Door swings are often a polyline with one curved ("bulge") segment rather
+    than an ARC (Big House sample). Return the most door-like curved segment as
+    an arc tuple (cx, cy, r, sweep, sx, sy, ex, ey) in world coords, or None."""
+    from ezdxf.math import Vec2, bulge_to_arc
+    try:
+        pts = list(e.get_points("xyb"))
+    except Exception:
+        return None
+    if e.closed and pts:
+        pts = pts + [pts[0]]
+    ocs = e.ocs()
+    best = None
+    for (x1, y1, b), (x2, y2, _) in zip(pts, pts[1:]):
+        if abs(b) < 1e-6:
+            continue
+        sweep = math.degrees(4.0 * math.atan(abs(b)))
+        center, _, _, radius = bulge_to_arc(Vec2(x1, y1), Vec2(x2, y2), b)
+        c = ocs.to_wcs((center.x, center.y, 0))
+        s = ocs.to_wcs((x1, y1, 0))
+        t = ocs.to_wcs((x2, y2, 0))
+        cand = (c.x, c.y, float(radius), sweep, s.x, s.y, t.x, t.y)
+        if best is None or abs(sweep - 90.0) < abs(best[3] - 90.0):
+            best = cand
+    return best
+
+
 def _record_for(e, layer, block, top, flat_tol):
     """One flattened record for a non-INSERT entity, or None to skip."""
     from ezdxf import path as ezpath
@@ -97,10 +124,15 @@ def _record_for(e, layer, block, top, flat_tol):
         if len(pts) < 2:
             return None
         arc = None
-        if kind == "ARC":
+        if kind == "LWPOLYLINE":
+            arc = _bulge_arc(e)
+        elif kind == "ARC":
+            # World coordinates: mirrored door blocks put arcs in a flipped OCS,
+            # so raw dxf.center / angles would be wrong.
             sweep = (e.dxf.end_angle - e.dxf.start_angle) % 360.0
-            c = e.dxf.center
-            arc = (c.x, c.y, float(e.dxf.radius), sweep)
+            c = e.ocs().to_wcs(e.dxf.center)
+            sp, ep = e.start_point, e.end_point
+            arc = (c.x, c.y, float(e.dxf.radius), sweep, sp.x, sp.y, ep.x, ep.y)
         return Rec(layer, kind, block, _bbox_of_points(pts), segs=_segments_from_points(pts), arc=arc, top=top)
 
     if kind in ("TEXT", "MTEXT"):
@@ -126,10 +158,19 @@ def _record_for(e, layer, block, top, flat_tol):
     return Rec(layer, kind, block, box, top=top) if box else None
 
 
+class Insert:
+    """A block reference and the slice of records its content produced."""
+    __slots__ = ("name", "layer", "top", "start", "end")
+
+    def __init__(self, name, layer, top, start, end):
+        self.name, self.layer, self.top, self.start, self.end = name, layer, top, start, end
+
+
 def flatten(doc, metres_per_unit):
-    """Model space -> list[Rec]. Returns (records, stats)."""
+    """Model space -> (records, stats, inserts)."""
     flat_tol = 0.02 / metres_per_unit  # ~2 cm chord error when approximating curves
     records = []
+    inserts = []
     stats = {"top_level_entities": 0, "block_refs_expanded": 0, "truncated": False}
 
     def visit(entity, parent_layer, block, top, depth):
@@ -148,8 +189,11 @@ def flatten(doc, metres_per_unit):
             except Exception:
                 return
             name = entity.dxf.get("name", None)
+            start = len(records)
             for child in children:
                 visit(child, layer, name, top, depth + 1)
+            if len(records) > start:
+                inserts.append(Insert(name or "", layer, top, start, len(records)))
             return
         rec = _record_for(entity, layer, block, top, flat_tol)
         if rec is not None:
@@ -161,7 +205,7 @@ def flatten(doc, metres_per_unit):
         if stats["truncated"]:
             break
     stats["records"] = len(records)
-    return records, stats
+    return records, stats, inserts
 
 
 def seg_length(s):

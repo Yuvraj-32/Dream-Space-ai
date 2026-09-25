@@ -27,6 +27,17 @@ def render_cluster(records, rec_idxs, bbox, layer_roles, out_path, max_w=360, ma
     scale = min((max_w - 2 * margin) / w_u, (max_h - 2 * margin) / h_u)
     w = max(40, int(round(w_u * scale)) + 2 * margin)
     h = max(40, int(round(h_u * scale)) + 2 * margin)
+    _draw(records, rec_idxs, layer_roles, out_path, w, h, x0, y1, scale, margin, margin, font=0.3)
+    return w, h
+
+
+def render_preview(records, rec_idxs, layer_roles, out_path, width, height, x0, y1, scale, ox, oy):
+    """Full-size background for the 2D editor, in exactly the detection's pixel space:
+    px = (x - x0) * scale + ox, py = (y1 - y) * scale + oy (drawing units)."""
+    _draw(records, rec_idxs, layer_roles, out_path, width, height, x0, y1, scale, ox, oy, font=0.5)
+
+
+def _draw(records, rec_idxs, layer_roles, out_path, w, h, x0, y1, scale, ox, oy, font):
     img = np.full((h, w, 3), BG, dtype=np.uint8)
 
     by_role = {role: [] for role in ROLE_STYLE}
@@ -42,8 +53,8 @@ def render_cluster(records, rec_idxs, bbox, layer_roles, out_path, max_w=360, ma
             continue
         s = np.asarray(segs, dtype=np.float64)
         pts = np.empty((len(s), 2, 2), dtype=np.int32)  # contiguous: OpenCV 5 rejects strided views
-        pts[:, :, 0] = np.round((s[:, [0, 2]] - x0) * scale + margin)
-        pts[:, :, 1] = np.round((y1 - s[:, [1, 3]]) * scale + margin)
+        pts[:, :, 0] = np.round((s[:, [0, 2]] - x0) * scale + ox)
+        pts[:, :, 1] = np.round((y1 - s[:, [1, 3]]) * scale + oy)
         color, thickness = ROLE_STYLE[role]
         cv2.polylines(img, list(pts), isClosed=False, color=color, thickness=thickness, lineType=cv2.LINE_AA)
 
@@ -51,10 +62,9 @@ def render_cluster(records, rec_idxs, bbox, layer_roles, out_path, max_w=360, ma
         r = records[i]
         if r.text and room_type_for(r.text):
             label = r.text if len(r.text) <= 18 else r.text[:17] + "…"
-            px = int(round((r.bbox[0] - x0) * scale + margin))
-            py = int(round((y1 - r.bbox[1]) * scale + margin))
+            px = int(round((r.bbox[0] - x0) * scale + ox))
+            py = int(round((y1 - r.bbox[1]) * scale + oy))
             cv2.putText(img, label.encode("ascii", "replace").decode(), (px, py),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, LABEL_COLOR, 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, font, LABEL_COLOR, 1, cv2.LINE_AA)
 
     cv2.imwrite(out_path, img)
-    return w, h

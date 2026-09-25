@@ -91,7 +91,7 @@ def paired_fraction(segs, metres_per_unit, min_len_m=0.3):
 
 
 def _is_door_arc(arc, metres_per_unit):
-    _, _, r, sweep = arc
+    r, sweep = arc[2], arc[3]
     r_m = r * metres_per_unit
     return 80.0 <= sweep <= 100.0 and 0.5 <= r_m <= 1.3
 
@@ -153,6 +153,15 @@ def analyze_layers(doc, records, metres_per_unit):
             "confidence": conf,
             "reason": reason,
         })
+    # If the drawing names a wall layer, trust that over look-alike geometry
+    # elsewhere: the gazebo sample's layer "0" is 2,600 lines of stone hatching
+    # drawn inside the walls — very "parallel", but not walls.
+    named = [l["name"] for l in layers if l["suggested_role"] == "wall" and l["reason"].startswith("name")]
+    if named:
+        for l in layers:
+            if l["suggested_role"] == "wall" and not l["reason"].startswith("name"):
+                l.update(suggested_role="ignore", confidence=0.55,
+                         reason=f"wall-like lines, but walls are on {', '.join(named[:3])}")
     layers.sort(key=lambda l: l["entities"], reverse=True)
     return layers
 

@@ -318,11 +318,29 @@ image regression tests pass. Floor-plan inspect time 1–10 s. What changed vs. 
 - **Carried to Phase 4:** the 19 MB block library takes ~92 s (read 39 s, block expansion 26 s,
   clustering 12 s) — needs background processing + progress, or block-expansion limits.
 
-### Phase 2 — Geometry (3–4 days)
+### Phase 2 — Geometry (3–4 days) — ✅ done
 `walls.py`, `openings.py`, `rooms.py`, `pipeline.py`, preview render, `/cad/detect`,
 auto path on `/detect`. Overlay debug images (like the existing `diag_*` scripts).
 **Done when:** walls/rooms/doors look right on the overlay for the floor-plan samples,
 and wall lengths match the drawing's own dimensions within ~2%.
+
+**Result:** checked against the drawings' own room-size labels (e.g. `BED ROOM - 6
+16'-10½"X23'-6"` → measured 16.8 × 23.8 ft): Ishverbhai 1st floor median error **1.8%**
+(8 rooms), ground floor 4.3% (8 rooms). Big House: 63 walls, 7 doors, 12 rooms; Simple
+Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Detection
+< 1 s per plan (parsed drawing cached from inspect). 45 tests pass. Notes:
+- Walls = nearest *mutual* parallel face pairs, restricted to the drawing's own wall
+  thicknesses (histogram peaks) — rejects door leaves, closets, plaster lines.
+- Door swings also come as polyline "bulge" arcs inside anonymous dynamic blocks
+  (Big House) — handled. Doors are accepted only when hinge and closed end sit on a wall.
+- Stairs (treads ~28 cm apart) look like wall faces → chains of short parallel pieces dropped.
+- Rooms: doorway/window gaps sealed virtually (never output as walls) so rooms close.
+- A named wall layer (e.g. `A-WALL`) now outranks look-alike geometry on other layers
+  (gazebo layer `0` = 2,600 lines of stone hatching); frames drawn as double/loose
+  rectangles are detected (Ishverbhai = 3 floors inside one border → 3 drawings).
+- **Known gaps (→ Phase 4):** window symbols drawn only as thin lines on non-window
+  layers aren't found (Big House, Ishverbhai: 0 windows); a doorway seal can bridge two
+  separate buildings into a phantom room (gazebo); generic labels ("ROOM") stay `undefined`.
 
 ### Phase 3 — Frontend (2–3 days)
 Vite alias/dedupe config, `cadApi.js`, `cadUtils.js`, `CadReviewPanel.jsx`,

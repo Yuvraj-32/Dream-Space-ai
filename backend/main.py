@@ -7,7 +7,8 @@ import shutil, os, sys, uuid
 # kept separate from the image-detection code in this folder.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "cad update folder", "backend"))
-from cad.converter import CAD_EXTS, MAX_CAD_BYTES  # noqa: E402
+from cad.converter import CAD_EXTS, MAX_CAD_BYTES, CadError  # noqa: E402
+from cad.detect import detect_file as detect_cad_file  # noqa: E402
 from cad.routes import create_cad_router  # noqa: E402
 
 app = FastAPI(title="DreamSpace AI Backend", version="0.3.0")
@@ -39,10 +40,6 @@ def safe_filename(original: str) -> str:
 
 def _is_cad(path: str) -> bool:
     return os.path.splitext(path)[-1].lower() in CAD_EXTS
-
-
-_CAD_DETECT_PENDING = ("Wall detection for CAD files arrives in Phase 2. "
-                       "Use POST /cad/inspect/{filename} for now.")
 
 
 def run_detection(image_path: str, engine: str = "classical", measure: bool = False) -> dict:
@@ -141,7 +138,14 @@ async def detect_walls(filename: str, engine: str = "classical", measure: bool =
             detail=f"File '{filename}' not found. Upload it first via POST /upload.",
         )
     if _is_cad(image_path):
-        raise HTTPException(status_code=501, detail=_CAD_DETECT_PENDING)
+        # Automatic path (suggested drawing + suggested layer roles). The UI uses
+        # /cad/inspect + /cad/detect so the user can review both first.
+        try:
+            result = detect_cad_file(image_path, CAD_CACHE_DIR)
+        except CadError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        result["preview_url"] = f"/cad/preview/{result['session_id']}/{result.pop('preview_file')}"
+        return result
     try:
         return run_detection(image_path, engine, measure)
     except ImportError:

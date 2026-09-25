@@ -26,7 +26,7 @@ def _layers(result):
 def _units_for(path):
     doc, _ = load_doc(path)
     _, header_name, header_mpu = header_units(doc)
-    records, _ = flatten(doc, header_mpu or 0.001)
+    records, _, _ = flatten(doc, header_mpu or 0.001)
     return resolve_units(records, header_name)
 
 
@@ -189,5 +189,6 @@ def test_upload_accepts_cad_and_keeps_images(main_client, tmp_path):
     res = main_client.post("/upload", files={"file": ("notes.txt", b"hi", "text/plain")})
     assert res.status_code == 400
 
-    assert main_client.post(f"/detect/{cad_name}").status_code == 501
+    res = main_client.post(f"/detect/{cad_name}")
+    assert res.status_code == 200 and res.json()["walls"] and res.json()["preview_url"]
     assert main_client.post(f"/cad/inspect/{cad_name}").status_code == 200

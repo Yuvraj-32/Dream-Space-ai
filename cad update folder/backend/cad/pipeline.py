@@ -1,11 +1,12 @@
-"""CAD orchestration. Phase 1: `inspect_file` (no wall generation yet).
+"""CAD inspect: convert (DWG only) → read DXF → units → flatten → layer roles →
+drawing clusters → thumbnails. (Wall generation lives in detect.py.)
 
-inspect = convert (DWG only) → read DXF → units → flatten → layer roles →
-drawing clusters → thumbnails. The result is cached per file content hash in
-`<cache_root>/<session_id>/inspect.json`, so re-opening the same drawing is instant.
+Cached per file content hash in `<cache_root>/<session_id>/`: inspect.json for
+the API, state.pkl (parsed records) so detect never re-reads the DXF.
 """
 import json
 import os
+import pickle
 import time
 
 from .clusters import find_clusters
@@ -15,7 +16,7 @@ from .loader import flatten, header_units, load_doc
 from .render import render_cluster
 from .units import resolve_units
 
-INSPECT_VERSION = 3
+INSPECT_VERSION = 8
 
 
 def session_dir(cache_root, session_id):
@@ -46,7 +47,7 @@ def inspect_file(src_path, cache_root, use_cache=True):
     t = time.time()
     code, header_name, header_mpu = header_units(doc)
     flat_mpu = header_mpu or 0.001
-    records, flat_stats = flatten(doc, flat_mpu)
+    records, flat_stats, inserts = flatten(doc, flat_mpu)
     if not records:
         # Phase 0: a 35 MB AutoCAD 2010 file "converted" successfully into an
         # empty drawing — LibreDWG can silently drop everything.
@@ -61,7 +62,7 @@ def inspect_file(src_path, cache_root, use_cache=True):
     mpu = units["metres_per_unit"]
     if not 0.5 <= mpu / flat_mpu <= 2.0:
         # Curve-flattening tolerance was based on the wrong unit; redo it.
-        records, flat_stats = flatten(doc, mpu)
+        records, flat_stats, inserts = flatten(doc, mpu)
     timings["flatten"] = round(time.time() - t, 2)
 
     t = time.time()
@@ -81,6 +82,12 @@ def inspect_file(src_path, cache_root, use_cache=True):
                               os.path.join(thumbs_dir, f"{c['id']}.png"))
         c["thumbnail_size"] = [w, h]
     timings["thumbnails"] = round(time.time() - t, 2)
+
+    # Keep the parsed drawing so /cad/detect doesn't re-read the DXF (up to ~10 s).
+    with open(os.path.join(sdir, "state.pkl"), "wb") as f:
+        pickle.dump({"inspect_version": INSPECT_VERSION, "records": records, "inserts": inserts,
+                     "members": {c["id"]: c["_records"] for c in clusters}}, f,
+                    protocol=pickle.HIGHEST_PROTOCOL)
 
     result = {
         "inspect_version": INSPECT_VERSION,

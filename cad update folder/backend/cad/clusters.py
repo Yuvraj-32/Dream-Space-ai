@@ -149,10 +149,14 @@ def find_frames(records, geo_idxs, metres_per_unit, cell):
             candidates.append((i, rb))
     candidates.sort(key=lambda c: (c[1][2] - c[1][0]) * (c[1][3] - c[1][1]), reverse=True)
 
+    area = lambda b: (b[2] - b[0]) * (b[3] - b[1])
     frames = set()
     for i, (x0, y0, x1, y1) in candidates[:20]:
+        # Double borders: judging one border, its twin must not count as
+        # "content" (it would glue the drawings together and hide the frame).
+        twins = {k for k, kb in candidates if area(kb) >= 0.8 * area((x0, y0, x1, y1))}
         inside = [j for j in geo_idxs
-                  if j != i and j not in frames
+                  if j != i and j not in frames and j not in twins
                   and x0 < records[j].center[0] < x1 and y0 < records[j].center[1] < y1]
         if len(inside) < 20:
             continue
@@ -175,7 +179,10 @@ def find_clusters(records, metres_per_unit, layer_roles):
     frames = find_frames(records, geo_idxs, metres_per_unit, cell)
     geo_idxs = [i for i in geo_idxs if i not in frames]
 
-    groups = _merge_nested(records, _components(records, geo_idxs, cell), metres_per_unit)
+    groups = _components(records, geo_idxs, cell)
+    hollow = [g for g in groups if _is_hollow_frame(records, g, metres_per_unit)]
+    groups = [g for g in groups if not any(g is h for h in hollow)]
+    groups = _merge_nested(records, groups, metres_per_unit)
     kept, dropped_small = [], 0
     for g in groups:
         bbox, long_m = _bbox_of(records, g, metres_per_unit)
@@ -203,8 +210,28 @@ def find_clusters(records, metres_per_unit, layer_roles):
     for n, c in enumerate(kept):
         c["id"] = f"c{n}"
         c["suggested"] = c is best
-    return kept, {"frames_removed": len(frames), "tiny_groups_dropped": dropped_small,
+    return kept, {"frames_removed": len(frames) + len(hollow), "tiny_groups_dropped": dropped_small,
                   "groups_found": len(groups)}
+
+
+def _is_hollow_frame(records, group, metres_per_unit, min_side_m=MIN_FRAME_SIDE_M, edge_share=0.95):
+    """A sheet border drawn as loose lines (or a double border): a big group whose
+    line length lies almost entirely along its own bbox edges. find_frames only
+    catches closed-rectangle borders; this catches the rest before
+    _merge_nested can fold every drawing inside the border into it."""
+    (x0, y0, x1, y1), _ = _bbox_of(records, group, metres_per_unit)
+    if min(x1 - x0, y1 - y0) * metres_per_unit < min_side_m:
+        return False
+    tol = max(0.3 / metres_per_unit, 0.02 * min(x1 - x0, y1 - y0))
+    total = on_edge = 0.0
+    for i in group:
+        for s in records[i].segs or ():
+            length = math.hypot(s[2] - s[0], s[3] - s[1])
+            total += length
+            mx, my = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
+            if min(mx - x0, x1 - mx, my - y0, y1 - my) <= tol:
+                on_edge += length
+    return total > 0 and on_edge / total >= edge_share
 
 
 def _merge_nested(records, groups, metres_per_unit):
