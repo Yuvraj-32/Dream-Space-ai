@@ -1,7 +1,14 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import shutil, os, uuid
+import shutil, os, sys, uuid
+
+# CAD (.dwg/.dxf) support lives in "cad update folder/backend" (package `cad`),
+# kept separate from the image-detection code in this folder.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "cad update folder", "backend"))
+from cad.converter import CAD_EXTS, MAX_CAD_BYTES  # noqa: E402
+from cad.routes import create_cad_router  # noqa: E402
 
 app = FastAPI(title="DreamSpace AI Backend", version="0.3.0")
 
@@ -15,16 +22,27 @@ app.add_middleware(
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+CAD_CACHE_DIR = os.path.join(UPLOAD_DIR, "cad_cache")
 
 ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
+app.include_router(create_cad_router(UPLOAD_DIR, CAD_CACHE_DIR))
 
 
 def safe_filename(original: str) -> str:
     """UUID-based filename — avoids spaces and special chars causing URL issues."""
     ext = os.path.splitext(original)[-1].lower()
-    if ext not in ALLOWED_EXTS:
+    if ext not in ALLOWED_EXTS and ext not in CAD_EXTS:
         ext = ".jpg"
     return f"{uuid.uuid4().hex}{ext}"
+
+
+def _is_cad(path: str) -> bool:
+    return os.path.splitext(path)[-1].lower() in CAD_EXTS
+
+
+_CAD_DETECT_PENDING = ("Wall detection for CAD files arrives in Phase 2. "
+                       "Use POST /cad/inspect/{filename} for now.")
 
 
 def run_detection(image_path: str, engine: str = "classical", measure: bool = False) -> dict:
@@ -72,13 +90,13 @@ def health_check():
 
 @app.post("/upload")
 async def upload_floor_plan(file: UploadFile = File(...)):
-    """Accept a floor plan image, save with a safe UUID filename."""
+    """Accept a floor plan image or CAD drawing, save with a safe UUID filename."""
     original_name = file.filename or "upload.jpg"
     ext = os.path.splitext(original_name)[-1].lower()
-    if ext not in ALLOWED_EXTS:
+    if ext not in ALLOWED_EXTS and ext not in CAD_EXTS:
         return JSONResponse(
             status_code=400,
-            content={"error": f"Unsupported extension '{ext}'. Use JPEG, PNG, BMP, TIFF, or WebP."},
+            content={"error": f"Unsupported extension '{ext}'. Use JPEG, PNG, BMP, TIFF, WebP, DWG, or DXF."},
         )
 
     filename = safe_filename(original_name)
@@ -87,12 +105,23 @@ async def upload_floor_plan(file: UploadFile = File(...)):
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    size = os.path.getsize(save_path)
+    is_cad = ext in CAD_EXTS
+    if is_cad and size > MAX_CAD_BYTES:
+        os.remove(save_path)
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"CAD file is {size / 1048576:.1f} MB; the limit is {MAX_CAD_BYTES // 1048576} MB."},
+        )
+
     return {
-        "message": "Uploaded. Call /detect/{filename} to run wall detection.",
+        "message": ("Uploaded. Call /cad/inspect/{filename} to review the drawing." if is_cad
+                    else "Uploaded. Call /detect/{filename} to run wall detection."),
         "filename": filename,
         "original_name": original_name,
         "content_type": file.content_type,
-        "size_bytes": os.path.getsize(save_path),
+        "size_bytes": size,
+        "kind": "cad" if is_cad else "image",
         "status": "uploaded",
     }
 
@@ -111,6 +140,8 @@ async def detect_walls(filename: str, engine: str = "classical", measure: bool =
             status_code=404,
             detail=f"File '{filename}' not found. Upload it first via POST /upload.",
         )
+    if _is_cad(image_path):
+        raise HTTPException(status_code=501, detail=_CAD_DETECT_PENDING)
     try:
         return run_detection(image_path, engine, measure)
     except ImportError:

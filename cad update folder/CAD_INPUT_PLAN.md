@@ -297,10 +297,26 @@ Output a suggested role + confidence per layer; the UI shows it pre-selected.
 | WORKING DRAWING FOR TOWER-B _ COLUMN & FOOTING.dwg | R2010 | 35 MB | structural, not a floor plan (stress test) |
 | AUTOCAD_Library.dwg | R2004 | 19 MB | block library, not a floor plan |
 
-### Phase 1 — Backend foundation (2–3 days)
+### Phase 1 — Backend foundation (2–3 days) — ✅ done
 `converter.py`, `loader.py`, `layers.py`, `clusters.py`, `render.py` (thumbnails),
 `routes.py` with `/cad/health` and `/cad/inspect`, main.py hook-in, synthetic DXF fixtures + tests.
 **Done when:** inspect returns sensible clusters/layers for every floor-plan sample.
+
+**Result:** correct plan auto-picked for all 4 readable floor-plan samples; non-plans
+(site, structural) report "nothing looks like a floor plan"; 26 unit tests + existing
+image regression tests pass. Floor-plan inspect time 1–10 s. What changed vs. the plan:
+- **Header units are unreliable** (wrong in 3 of 7 samples) → `units.py` picks the unit
+  from geometry (wall-pair spacing, door-swing radius, plausible size); header only breaks ties.
+- **LibreDWG can drop walls silently** (THREE BEDROOM: labels + dimensions kept, walls gone;
+  Tower-B: everything gone) → such plans are listed as `plan_without_walls` with a
+  "save as DXF" warning; an empty drawing is a conversion error.
+- Elevations are demoted by their long diagonal roof lines; drawings < 5 m (schedules,
+  details) are penalised; only confident floor plans are auto-suggested.
+- Clustering grid is 0.5 m (keeps two copies of a plan ~1 m apart separate); groups nested
+  inside a bigger drawing's outline (mid-room furniture, facade windows) are folded into it.
+- Thumbnails use OpenCV line drawing (+ room names), not full rendering (617 s on the library).
+- **Carried to Phase 4:** the 19 MB block library takes ~92 s (read 39 s, block expansion 26 s,
+  clustering 12 s) — needs background processing + progress, or block-expansion limits.
 
 ### Phase 2 — Geometry (3–4 days)
 `walls.py`, `openings.py`, `rooms.py`, `pipeline.py`, preview render, `/cad/detect`,

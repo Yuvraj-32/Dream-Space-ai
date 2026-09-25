@@ -20,10 +20,12 @@ audit errors** — including all 5 real floor plans, across AutoCAD 2004 / 2007 
 | 5 | Ishverbhai Punna | 2007 (AC1021) | 0.8 MB | ✅ 0.5 s | 10,498 | in | 0 | 13.3 s | **Floor plan** (living, bedrooms, baths labelled) |
 | 6 | MANDIR mahadev location-6 | 2018 (AC1032) | 0.1 MB | ✅ 0.2 s | 198 | m | 0 | 2.0 s | Site / location plan — not a floor plan |
 | 7 | LINE OUT | 2010 (AC1024) | 0.5 MB | ✅ 0.2 s | 32 | mm | 0 | 3.1 s | Structural column layout — not a floor plan |
-| 8 | AUTOCAD_Library | 2004 (AC1018) | 19 MB | ✅ 9.0 s (→ 100 MB DXF) | 128,361 | mm | 0 | *still running at commit time* | Block library — not a floor plan |
-| 9 | WORKING DRAWING … COLUMN & FOOTING | 2010 (AC1024) | 35 MB | *still running at commit time* | | | | | Structural — not a floor plan |
+| 8 | AUTOCAD_Library | 2004 (AC1018) | 19 MB | ✅ 9.0 s (→ 100 MB DXF) | 128,361 | mm | 0 | **617 s** | Block library — not a floor plan |
+| 9 | WORKING DRAWING … COLUMN & FOOTING | 2010 (AC1024) | 35 MB | ⚠️ 24.6 s, "ok" but **empty** | 0 | mm | 0 | — | Structural — not a floor plan |
 
-Rows 8–9 only stress-test large files; they don't affect the verdict.
+Rows 8–9 only stress-test large files; they don't affect the verdict (all 5 floor
+plans passed). Row 9 is a **silent failure**: LibreDWG exited successfully but the
+DXF has no drawn entities at all (only 44 bookkeeping objects).
 The converter prints many warnings (up to ~1,700 lines per file) while ezdxf's
 audit still finds 0 errors (it silently fixes 50–543 minor issues) — so warnings
 are informational, not failures.
@@ -49,3 +51,7 @@ are informational, not failures.
    upload cap, converter timeout, and skip heavy work outside the chosen cluster.
 8. **Curved walls exist** (rounded bay in Simple Country House). → ARC handling from day one.
 9. **Conversion is fast** (≤ 1.1 s for all floor plans; 9 s for the 19 MB library).
+10. **LibreDWG can fail silently** (row 9: exit code 0, empty drawing). → after reading,
+    an empty model space is treated as a conversion failure with a "save as DXF" message.
+11. **Full-quality rendering doesn't scale** (617 s for the 128k-entity library). →
+    thumbnails are drawn directly from line segments with OpenCV instead.
