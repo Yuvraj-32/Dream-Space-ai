@@ -342,10 +342,20 @@ Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Dete
   layers aren't found (Big House, Ishverbhai: 0 windows); a doorway seal can bridge two
   separate buildings into a phantom room (gazebo); generic labels ("ROOM") stay `undefined`.
 
-### Phase 3 — Frontend (2–3 days)
-Vite alias/dedupe config, `cadApi.js`, `cadUtils.js`, `CadReviewPanel.jsx`,
-UploadPanel/App hook-ins, error states.
+### Phase 3 — Frontend (2–3 days) — ✅ done
+Vite alias config, `cadApi.js`, `CadReviewPanel.jsx`, UploadPanel/App hook-ins, error states.
 **Done when:** upload DWG → pick plan → confirm layers → editor → 3D works in the browser.
+
+**Result:** verified in the browser with Big House: upload → 📐 CAD tab (plan auto-picked ★,
+layer roles, units "plan is about 23.1 × 25.5 m") → Generate walls → editor (63 walls,
+real-feet labels, doors) → Confirm → 3D with door panels. A corrupt DWG shows a readable
+error; a JPG still goes through the old Detect flow (CAD tab disappears). What changed:
+- Files outside `frontend/` can't resolve `react` by themselves, so `vite.config.js` aliases
+  `@cad` → the CAD folder and `react`/`react-dom` → `frontend/node_modules` (dedupe alone isn't enough).
+- No separate `cadUtils.js`; helpers live in `cadApi.js`.
+- The 3D camera, orbit limit and fog now scale with the building size (a real 25 m house
+  needs more room than the ~12 m the image flow normalises to); 12 m plans behave as before.
+- Conversion errors no longer echo the converter's log (it leaked server paths).
 
 ### Phase 4 — Integration & polish (1–2 days)
 Exact scale into 3D, stats panel labels, caching, large-file behaviour (35 MB sample),

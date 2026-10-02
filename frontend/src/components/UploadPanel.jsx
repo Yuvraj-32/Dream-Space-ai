@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import axios from 'axios'
+import { isCadFile } from '@cad/cadApi'
 
 const API_BASE = 'http://localhost:8001'
 
@@ -14,6 +15,7 @@ const PIPELINE_STEPS = [
 export default function UploadPanel({ onUploadSuccess, currentStep, detectionError }) {
   const [dragging, setDragging]   = useState(false)
   const [preview,  setPreview]    = useState(null)
+  const [isCad,    setIsCad]      = useState(false)
   const [fileName, setFileName]   = useState(null)
   const [status,   setStatus]     = useState(null)
   const [loading,  setLoading]    = useState(false)
@@ -35,8 +37,11 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
   function handleFile(file) {
     if (!file) return
     setFileName(file.name)
-    const objectUrl = URL.createObjectURL(file)
-    setPreview(objectUrl)
+    // CAD files aren't images: no blob preview (App shows drawing thumbnails instead).
+    const cad = isCadFile(file)
+    setIsCad(cad)
+    const objectUrl = cad ? null : URL.createObjectURL(file)
+    setPreview(cad ? 'cad' : objectUrl)
     setStatus(null)
     uploadFile(file, objectUrl)
   }
@@ -52,7 +57,7 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
       })
       setStatus({
         type:   'success',
-        title:  'Uploaded! Running detection…',
+        title:  data.kind === 'cad' ? 'Uploaded! Reading CAD drawing…' : 'Uploaded! Running detection…',
         detail: `${data.filename} · ${(data.size_bytes / 1024).toFixed(1)} KB`,
       })
       setLocalStep(1)
@@ -106,7 +111,7 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
               <div className="upload-title">
                 {preview ? 'Change floor plan' : 'Drop your floor plan here'}
               </div>
-              <div className="upload-sub">JPEG, PNG, BMP, TIFF, WebP supported</div>
+              <div className="upload-sub">JPEG, PNG, BMP, TIFF, WebP · AutoCAD DWG, DXF</div>
               <button className="upload-btn" type="button" disabled={loading}>
                 📂 Browse file
               </button>
@@ -119,7 +124,7 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
           className="file-input"
           type="file"
           id="file-input"
-          accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp"
+          accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp,.dwg,.dxf"
           onChange={onInputChange}
         />
 
@@ -141,7 +146,9 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
 
         {preview && (
           <div className="preview-container" style={{ marginTop: 14 }}>
-            <img src={preview} alt="Floor plan preview" />
+            {isCad
+              ? <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>📐</div>
+              : <img src={preview} alt="Floor plan preview" />}
             <div className="preview-overlay">
               <span className="preview-filename">{fileName}</span>
             </div>

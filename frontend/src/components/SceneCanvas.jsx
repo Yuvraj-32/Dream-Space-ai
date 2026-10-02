@@ -851,6 +851,18 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
  *    itself — no HDRI file, no network request — and is kept at low intensity
  *    so the existing lighting look is preserved rather than replaced.
  */
+// Frame the building: a real-size 25 m house needs the camera further back than
+// the ~12 m the image flow normalises to. Re-frames only when the size changes.
+function CameraFit({ longM }) {
+  const { camera } = useThree()
+  useEffect(() => {
+    const d = Math.max(8, longM * 0.7)
+    camera.position.set(0, d, d)
+    camera.lookAt(0, 0.8, 0)
+  }, [camera, longM])
+  return null
+}
+
 function RendererSetup() {
   const { gl, scene } = useThree()
 
@@ -916,6 +928,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   if (!scale) scale = DEFAULT_HOME_LONG_M / bldLongPx
 
   // Centre the world on the building (not the image), so it sits at the origin.
+  const buildingLongM = Math.round(bldLongPx * scale)
   const cx = _hasWalls ? (_bx0 + _bx1) / 2 : imgW / 2
   const cy = _hasWalls ? (_by0 + _by1) / 2 : imgH / 2
 
@@ -1232,6 +1245,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         style={{ background: 'transparent' }}
       >
         <RendererSetup />
+        <CameraFit longM={buildingLongM} />
 
         {/* Lighting */}
         <ambientLight intensity={isWalkthrough ? 1.05 : isCinematic ? 0.65 : 0.4} />
@@ -1247,7 +1261,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         <pointLight position={[6, 3, 6]} intensity={0.3} color="#3dd9c6" />
 
         {/* Environment / Fog */}
-        <fog attach="fog" args={['#0a0c14', 18, 55]} />
+        <fog attach="fog" args={['#0a0c14', Math.max(18, buildingLongM * 1.5), Math.max(55, buildingLongM * 4)]} />
 
         {/* Render building or placeholder */}
         {confirmedLayout ? (
@@ -1373,7 +1387,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
           <OrbitControls
             makeDefault
             minDistance={2}
-            maxDistance={22}
+            maxDistance={Math.max(22, buildingLongM * 1.8)}
             maxPolarAngle={Math.PI / 2.05}
             enablePan={true}
             target={[0, 0.8, 0]}

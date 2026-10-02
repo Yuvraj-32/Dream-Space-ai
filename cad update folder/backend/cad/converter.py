@@ -122,10 +122,9 @@ def ensure_dxf(src_path, session_dir):
         log = (proc.stderr or "") + (proc.stdout or "")
         info["converter_warnings"] = sum(1 for line in log.splitlines() if "WARN" in line.upper())
         if proc.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0:
-            tail = " | ".join(log.strip().splitlines()[-3:])
             raise ConversionFailed(
-                f"LibreDWG could not convert this DWG (version {info['version']}). "
-                f"Try saving it as .dxf from AutoCAD. Details: {tail}"
+                f"LibreDWG could not convert this DWG (version {info['version']}); the file may be "
+                "damaged or use features it doesn't support. Try saving it as .dxf from AutoCAD."
             )
         shutil.move(out, cached)
     info["cached"] = False

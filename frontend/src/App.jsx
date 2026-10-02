@@ -5,6 +5,8 @@ import SceneCanvas from './components/SceneCanvas'
 import DetectionOverlay from './components/DetectionOverlay'
 import DetectionStats from './components/DetectionStats'
 import FloorPlanEditor from './components/FloorPlanEditor'
+import CadReviewPanel from '@cad/CadReviewPanel'
+import { cadUrl, detectCad, inspectCad } from '@cad/cadApi'
 import './index.css'
 
 const API_BASE = 'http://localhost:8001'
@@ -26,9 +28,52 @@ export default function App() {
   const [showcaseMode,    setShowcaseMode]    = useState(false)
   const [activeView,      setActiveView]      = useState('3d')
   const [detectStep,      setDetectStep]      = useState('Idle')
+  const [cadFile,         setCadFile]         = useState(null)   // upload response for a .dwg/.dxf
+  const [cadInspect,      setCadInspect]      = useState(null)
+  const [cadLoading,      setCadLoading]      = useState(false)
+  const [cadGenerating,   setCadGenerating]   = useState(false)
+  const [cadError,        setCadError]        = useState(null)
   // 'detect' | 'editor' | '3d'
 
+  async function handleCadUpload(data) {
+    setUploadData(data)
+    setImageUrl(null)
+    setDetection(null)
+    setConfirmedLayout(null)
+    setDetectionError(null)
+    setCadFile(data)
+    setCadInspect(null)
+    setCadError(null)
+    setCadLoading(true)
+    setActiveView('cad')
+    try {
+      setCadInspect(await inspectCad(data.filename))
+    } catch (err) {
+      setCadError(err.message)
+    } finally {
+      setCadLoading(false)
+    }
+  }
+
+  async function handleCadGenerate(choice) {
+    setCadGenerating(true)
+    setCadError(null)
+    try {
+      const res = await detectCad(cadFile.filename, choice)
+      setImageUrl(cadUrl(res.preview_url))
+      setDetection(res)
+      setActiveView('editor')
+    } catch (err) {
+      setCadError(err.message)
+    } finally {
+      setCadGenerating(false)
+    }
+  }
+
   async function handleUploadSuccess(data, localObjectUrl) {
+    if (data.kind === 'cad') return handleCadUpload(data)
+    setCadFile(null)
+    setCadInspect(null)
     setUploadData(data)
     setImageUrl(localObjectUrl)
     setDetection(null)
@@ -93,6 +138,15 @@ export default function App() {
 
         {/* View toggle — only show relevant tabs */}
         <div className="view-toggle">
+          {cadFile && (
+            <button
+              id="btn-view-cad"
+              className={`view-btn ${activeView === 'cad' ? 'active' : ''}`}
+              onClick={() => setActiveView('cad')}
+            >
+              📐 CAD
+            </button>
+          )}
           <button
             id="btn-view-detect"
             className={`view-btn ${activeView === 'detect' ? 'active' : ''}`}
@@ -156,6 +210,36 @@ export default function App() {
 
         {/* Canvas area */}
         <section className="canvas-area" aria-label="Preview">
+
+          {/* ── CAD review: pick plan, confirm layers/units ── */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: activeView === 'cad' ? 'flex' : 'none',
+            flexDirection: 'column', background: 'var(--bg-deep)',
+          }}>
+            {cadLoading && (
+              <div style={{ margin: 'auto', textAlign: 'center' }}>
+                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, margin: '0 auto 14px' }} />
+                <div style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>Reading CAD drawing…</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>Converting, finding drawings and layers</div>
+              </div>
+            )}
+            {!cadLoading && cadInspect && (
+              <CadReviewPanel
+                key={cadInspect.session_id}
+                inspect={cadInspect}
+                generating={cadGenerating}
+                error={cadError}
+                onGenerate={handleCadGenerate}
+                onCancel={() => { setCadFile(null); setCadInspect(null); setActiveView('3d') }}
+              />
+            )}
+            {!cadLoading && !cadInspect && cadError && (
+              <div style={{ margin: 'auto', maxWidth: 520, padding: 20, color: '#ffb4b4', fontSize: 14, lineHeight: 1.5 }}>
+                <b>Couldn't read this CAD file.</b><br />{cadError}
+              </div>
+            )}
+          </div>
 
           {/* ── Detect view: read-only SVG overlay ── */}
           <div style={{
@@ -232,6 +316,8 @@ export default function App() {
               <div className="canvas-badge-dot" />
               {activeView === 'detect'
                 ? 'OpenCV · Hough Lines · Contours'
+                : activeView === 'cad'
+                ? 'AutoCAD · exact vector geometry'
                 : 'Three.js · react-three-fiber'}
             </div>
           )}
