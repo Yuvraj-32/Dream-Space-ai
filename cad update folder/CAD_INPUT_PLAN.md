@@ -347,6 +347,16 @@ Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Dete
   "17'-9\" × 15'" living-room label measures as one 34 × 35 ft space) and the Big House garage /
   terrace, which have no walls in the drawing.)*
 
+#### Accuracy pass — plan stored in an unplaced block (THREE BEDROOM)
+THREE BEDROOM's walls were "missing" for a different reason: the whole plan (layers wall/door/window/stair,
+124 labels) sits in block `hju`, which nothing in the converted DXF references — LibreDWG decoded the
+objects that would have placed it as unknown and dropped them. New `orphans.py`: when model space has
+no confident floor plan, find unreferenced blocks with many wall-layer lines plus door/window layers,
+flatten them far to the side of the real content, and cluster them like any drawing. Result: 0 → 3
+recovered plans (ground 12 walls/3 rooms, first floor 21 walls/13 windows/8 rooms with bedroom, office,
+bath, closet, storage named, second 18 walls/17 windows/7 rooms). Files that already work are untouched
+(recovery never runs for them); a note tells the user the plan was recovered. 56 tests pass.
+
 #### Accuracy pass — window gaps (after Phase 3)
 User report: walls missing, doors/windows missing, wrong rooms on Big House / Simple Country / Gazebo.
 Measured first: wall-layer lines were 97–100% covered, so the "missing walls" were **gaps where windows

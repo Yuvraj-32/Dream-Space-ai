@@ -99,3 +99,45 @@ def test_bare_rectangle_is_a_plan_not_a_border(tmp_path):
     from cad.pipeline import inspect_file
     r = inspect_file(str(tmp_path / "box.dxf"), str(tmp_path / "cache"))
     assert len(r["clusters"]) == 1 and r["clusters"][0]["size_m"] == [6.0, 4.0]
+
+
+def _plan_block(doc, name):
+    """A 10 x 8 m house with walls/doors/windows on named layers, stored only in a block."""
+    blk = doc.blocks.new(name)
+    wall = {"layer": "wall"}
+    for k in range(45):  # real plans have well over the 40-line plan-like minimum
+        y = k * 170
+        blk.add_line((0, y), (10000, y), dxfattribs=wall)
+    for (x1, y1, x2, y2) in [(0, 0, 10000, 0), (0, 200, 10000, 200), (0, 8000, 10000, 8000), (0, 7800, 10000, 7800),
+                             (0, 0, 0, 8000), (200, 200, 200, 7800), (10000, 0, 10000, 8000), (9800, 200, 9800, 7800),
+                             (5000, 200, 5000, 3000), (5200, 200, 5200, 3000)]:
+        blk.add_line((x1, y1), (x2, y2), dxfattribs=wall)
+    blk.add_arc((3000, 0), 900, 0, 90, dxfattribs={"layer": "door"})
+    blk.add_line((3000, 0), (3900, 0), dxfattribs={"layer": "window"})
+    for text, x, y in (("BED ROOM", 2000, 4000), ("KITCHEN", 7000, 4000), ("BATH", 7000, 1500)):
+        blk.add_text(text, height=250, dxfattribs={"layer": "text"}).set_placement((x, y))
+
+
+def test_plan_stored_only_in_an_unplaced_block_is_recovered(tmp_path):
+    import ezdxf
+    from cad.pipeline import inspect_file
+    doc = ezdxf.new("R2010", units=4)
+    doc.modelspace().add_line((0, 0), (100, 0))               # model space holds nothing useful
+    _plan_block(doc, "hju")
+    doc.saveas(str(tmp_path / "orphan.dxf"))
+    r = inspect_file(str(tmp_path / "orphan.dxf"), str(tmp_path / "cache"))
+    plans = [c for c in r["clusters"] if c["kind_guess"] == "floor_plan"]
+    assert plans and plans[0]["recovered_from_block"] == "hju" and plans[0]["suggested"]
+    assert any("unplaced block" in w for w in r["warnings"])
+    assert detect_file(str(tmp_path / "orphan.dxf"), str(tmp_path / "cache"))["stats"]["walls_final"] > 0
+
+
+def test_referenced_block_is_not_treated_as_orphan(tmp_path):
+    import ezdxf
+    from cad.pipeline import inspect_file
+    doc = ezdxf.new("R2010", units=4)
+    _plan_block(doc, "hju")
+    doc.modelspace().add_blockref("hju", (0, 0))              # placed normally
+    doc.saveas(str(tmp_path / "placed.dxf"))
+    r = inspect_file(str(tmp_path / "placed.dxf"), str(tmp_path / "cache"))
+    assert "recovered_blocks" not in r["stats"]

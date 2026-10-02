@@ -13,10 +13,11 @@ from .clusters import find_clusters
 from .converter import ConversionFailed, ensure_dxf, file_session_id
 from .layers import analyze_layers
 from .loader import flatten, header_units, load_doc
+from .orphans import flatten_blocks, plan_blocks
 from .render import render_cluster
 from .units import resolve_units
 
-INSPECT_VERSION = 8
+INSPECT_VERSION = 9
 
 
 def session_dir(cache_root, session_id):
@@ -72,6 +73,23 @@ def inspect_file(src_path, cache_root, use_cache=True):
 
     t = time.time()
     clusters, cluster_stats = find_clusters(records, mpu, roles)
+    recovered = {}
+    if not any(c["kind_guess"] == "floor_plan" for c in clusters):
+        # No confident plan in model space: look for one stored in a block that
+        # nothing places (THREE BEDROOM). Never runs for files that already work.
+        names = plan_blocks(doc)
+        if names:
+            new_inserts, spans = flatten_blocks(doc, names, records, mpu, base_top=flat_stats["top_level_entities"])
+            inserts.extend(new_inserts)
+            if spans:
+                layers = analyze_layers(doc, records, mpu)
+                roles = {l["name"]: l["suggested_role"] for l in layers}
+                clusters, cluster_stats = find_clusters(records, mpu, roles)
+                for c in clusters:
+                    for name, (a, b) in spans.items():
+                        if any(a <= i < b for i in c["_records"][:50]):
+                            c["recovered_from_block"] = recovered[c["id"]] = name
+                cluster_stats["recovered_blocks"] = sorted(spans)
     timings["clusters"] = round(time.time() - t, 2)
 
     t = time.time()
@@ -115,8 +133,12 @@ def _warnings(source, flat_stats, clusters, layers, units):
     elif not any(c["suggested"] for c in clusters):
         out.append("Nothing in this file looks clearly like a floor plan (no drawing has both wall "
                    "lines and room names or door swings). If one of the drawings is your plan, pick it manually.")
+    blocks = sorted({c["recovered_from_block"] for c in clusters if c.get("recovered_from_block")})
+    if blocks:
+        out.append(f"The floor plan was stored in an unplaced block ({', '.join(blocks)}) that the DWG "
+                   "converter left out of the drawing; it was recovered from there. Please check it looks right.")
     for c in clusters:
-        if c.get("walls_missing"):
+        if c.get("walls_missing") and not blocks:
             out.append(f"Drawing {c['id']} has room names ({', '.join(c['room_labels'][:3])}…) but no walls — "
                        "they were likely lost when converting the DWG. If that's your floor plan, "
                        "save it as .dxf from AutoCAD and upload that instead.")
