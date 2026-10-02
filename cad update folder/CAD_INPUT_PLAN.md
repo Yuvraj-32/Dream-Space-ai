@@ -338,9 +338,22 @@ Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Dete
 - A named wall layer (e.g. `A-WALL`) now outranks look-alike geometry on other layers
   (gazebo layer `0` = 2,600 lines of stone hatching); frames drawn as double/loose
   rectangles are detected (Ishverbhai = 3 floors inside one border → 3 drawings).
-- **Known gaps (→ Phase 4):** window symbols drawn only as thin lines on non-window
-  layers aren't found (Big House, Ishverbhai: 0 windows); a doorway seal can bridge two
-  separate buildings into a phantom room (gazebo); generic labels ("ROOM") stay `undefined`.
+- **Known gaps (→ Phase 4):** a doorway seal can bridge two separate buildings into a
+  phantom room (gazebo); generic labels ("ROOM") stay `undefined`; a bare empty rectangle
+  (four walls, nothing inside) is mistaken for a sheet border and dropped.
+  *(Windows drawn as plain lines — the first gap listed here — were fixed afterwards: see below.)*
+
+#### Accuracy pass — window gaps (after Phase 3)
+User report: walls missing, doors/windows missing, wrong rooms on Big House / Simple Country / Gazebo.
+Measured first: wall-layer lines were 97–100% covered, so the "missing walls" were **gaps where windows
+sit** (the wall faces stop at a window, leaving a hole to the floor, no window object, and the room
+leaks open). New `gaps.py` (additive; wall pairing and door code untouched): a gap of 0.35–4 m between
+two collinear wall pieces that holds 2–10 parallel lines across ≥85% of it (any layer — Big House uses
+`inne_gulv`, gazebo `0`) becomes one continuous wall plus a window. Floor hatch (dozens of lines),
+gaps that already hold a door, and a wide gap beside a tiny stub (balcony railing post) are rejected.
+Results: Big House windows 0 → 14, walls 63 broken pieces → 49 continuous, rooms 12 → 17 (named 5 → 10);
+Gazebo 4 → 7 windows; Simple Country 8 windows, bottom bedroom now closed; Ishverbhai 1st floor
+median room-size error 1.8% → 1.0%, ground floor unchanged (4.3%). 53 tests pass.
 
 ### Phase 3 — Frontend (2–3 days) — ✅ done
 Vite alias config, `cadApi.js`, `CadReviewPanel.jsx`, UploadPanel/App hook-ins, error states.

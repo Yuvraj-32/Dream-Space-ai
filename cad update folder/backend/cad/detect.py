@@ -16,6 +16,7 @@ import time
 from .converter import CadError
 from .layers import ROLES
 from .loader import NAME_TO_M
+from .gaps import bridge_windows
 from .openings import attach_indices, find_openings, is_door_name, is_window_name
 from .pipeline import INSPECT_VERSION, inspect_file, session_dir
 from .render import render_preview
@@ -104,12 +105,15 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
         (door_blocks if kind == "door" else window_blocks).append({"arcs": arcs, "points": pts})
 
     wall_segs, wall_arcs, window_segs, loose_arcs, texts = [], [], [], [], []
+    all_segs = []  # every straight line, any layer: evidence for window gaps
     for i in members:
         r = records[i]
         if r.text:
             texts.append((*to_m(*r.center), r.text))
         if i in in_symbol:
             continue
+        if r.segs and r.kind != "ARC":
+            all_segs.extend(seg_m(sg) for sg in r.segs)
         role = roles.get(r.layer, "ignore")
         if r.arc:
             loose_arcs.append(arc_m(r.arc))  # openings.py checks it really swings from a wall
@@ -125,7 +129,9 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
 
     walls, wall_info = build_walls(wall_segs, wall_arcs)
     walls, openings = find_openings(walls, loose_arcs, door_blocks, window_blocks, window_segs)
-    openings = attach_indices(walls, openings)
+    # Windows drawn as plain lines (any layer) leave gaps in the walls: bridge them.
+    walls, gap_windows = bridge_windows(walls, all_segs, [(o["x"], o["y"]) for o in openings])
+    openings = attach_indices(walls, openings + gap_windows)
     rooms = find_rooms(walls, texts, W_m, H_m)
 
     ppm = TARGET_LONG_PX / (max(W_m, H_m) + 2 * MARGIN_M)
