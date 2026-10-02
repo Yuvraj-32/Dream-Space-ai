@@ -338,10 +338,14 @@ Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Dete
 - A named wall layer (e.g. `A-WALL`) now outranks look-alike geometry on other layers
   (gazebo layer `0` = 2,600 lines of stone hatching); frames drawn as double/loose
   rectangles are detected (Ishverbhai = 3 floors inside one border → 3 drawings).
-- **Known gaps (→ Phase 4):** a doorway seal can bridge two separate buildings into a
-  phantom room (gazebo); generic labels ("ROOM") stay `undefined`; a bare empty rectangle
-  (four walls, nothing inside) is mistaken for a sheet border and dropped.
-  *(Windows drawn as plain lines — the first gap listed here — were fixed afterwards: see below.)*
+- **Known gaps (→ Phase 4):** generic labels ("ROOM") stay `undefined`.
+  *(Fixed afterwards, see below: windows drawn as plain lines; a bare empty rectangle being
+  mistaken for a sheet border. Investigated and left alone: the gazebo "phantom room" — a 4 m²
+  pocket between two buildings closed by doorway seals; requiring walls to be connected
+  before sealing removed it but cost Big House 3 rooms, so it was reverted. Not detection
+  errors: open-plan areas (Ishverbhai living + dining + kitchen, no wall between, so the
+  "17'-9\" × 15'" living-room label measures as one 34 × 35 ft space) and the Big House garage /
+  terrace, which have no walls in the drawing.)*
 
 #### Accuracy pass — window gaps (after Phase 3)
 User report: walls missing, doors/windows missing, wrong rooms on Big House / Simple Country / Gazebo.

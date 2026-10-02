@@ -86,3 +86,16 @@ def test_detect_finds_window_in_a_cut_wall(tmp_path):
     south = [w for w in result["walls"] if w["y1"] == w["y2"] and w["y1"] > result["image_size"]["height"] / 2]
     assert len(south) == 1 and south[0]["length_ft"] == pytest.approx(8.0 / 0.3048, rel=0.03)   # one continuous wall
     assert windows[0]["wall_id"] == south[0]["id"]
+
+
+def test_bare_rectangle_is_a_plan_not_a_border(tmp_path):
+    import ezdxf
+    doc = ezdxf.new("R2010", units=4)
+    msp = doc.modelspace()
+    for (x1, y1, x2, y2) in [(0, 0, 6000, 0), (0, 200, 6000, 200), (0, 4000, 6000, 4000), (0, 3800, 6000, 3800),
+                             (0, 0, 0, 4000), (200, 200, 200, 3800), (6000, 0, 6000, 4000), (5800, 200, 5800, 3800)]:
+        msp.add_line((x1, y1), (x2, y2), dxfattribs={"layer": "A-WALL"})
+    doc.saveas(str(tmp_path / "box.dxf"))
+    from cad.pipeline import inspect_file
+    r = inspect_file(str(tmp_path / "box.dxf"), str(tmp_path / "cache"))
+    assert len(r["clusters"]) == 1 and r["clusters"][0]["size_m"] == [6.0, 4.0]

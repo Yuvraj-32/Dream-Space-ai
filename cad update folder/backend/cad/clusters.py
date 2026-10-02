@@ -180,7 +180,8 @@ def find_clusters(records, metres_per_unit, layer_roles):
     geo_idxs = [i for i in geo_idxs if i not in frames]
 
     groups = _components(records, geo_idxs, cell)
-    hollow = [g for g in groups if _is_hollow_frame(records, g, metres_per_unit)]
+    hollow = [g for g in groups
+              if _is_hollow_frame(records, g, metres_per_unit) and _encloses_other(records, g, groups, metres_per_unit)]
     groups = [g for g in groups if not any(g is h for h in hollow)]
     groups = _merge_nested(records, groups, metres_per_unit)
     kept, dropped_small = [], 0
@@ -232,6 +233,19 @@ def _is_hollow_frame(records, group, metres_per_unit, min_side_m=MIN_FRAME_SIDE_
             if min(mx - x0, x1 - mx, my - y0, y1 - my) <= tol:
                 on_edge += length
     return total > 0 and on_edge / total >= edge_share
+
+
+def _encloses_other(records, group, groups, metres_per_unit):
+    """A sheet border has other drawings inside it; a bare rectangle of walls (one
+    room, nothing drawn in it) doesn't, and must not be thrown away as a border."""
+    (x0, y0, x1, y1), _ = _bbox_of(records, group, metres_per_unit)
+    for other in groups:
+        if other is group:
+            continue
+        (ox0, oy0, ox1, oy1), _ = _bbox_of(records, other, metres_per_unit)
+        if x0 < (ox0 + ox1) / 2.0 < x1 and y0 < (oy0 + oy1) / 2.0 < y1:
+            return True
+    return False
 
 
 def _merge_nested(records, groups, metres_per_unit):
