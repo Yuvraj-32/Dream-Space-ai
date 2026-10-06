@@ -59,6 +59,19 @@ def _locate(px, py, walls):
     return None if best is None else best[1:]
 
 
+def _same_wall_line(a, b):
+    """Same piece, or two pieces on one wall line (a door gap splits a wall in two,
+    so a swing's closed end usually lands on the far piece, not the hinge's piece)."""
+    if a is b:
+        return True
+    La, ux, uy, nx, ny = _frame(a)
+    Lb, vx, vy, _, _ = _frame(b)
+    if abs(ux * vy - uy * vx) > math.sin(math.radians(2.0)):
+        return False
+    off = abs(((b[0] + b[2]) / 2 - a[0]) * nx + ((b[1] + b[3]) / 2 - a[1]) * ny)
+    return off <= (a[4] + b[4]) / 4.0 + 0.05
+
+
 def _door_from_arc(arc, walls):
     """arc = (cx, cy, r, sweep, sx, sy, ex, ey) in metres -> opening or None."""
     cx, cy, r, sweep = arc[0], arc[1], arc[2], arc[3]
@@ -72,7 +85,7 @@ def _door_from_arc(arc, walls):
     best = None
     for ex, ey in ends:
         loc = _locate(ex, ey, walls)
-        if loc and loc[0] == hinge[0] and (best is None or loc[2] < best[1][2]):
+        if loc and _same_wall_line(walls[loc[0]], walls[hinge[0]]) and (best is None or loc[2] < best[1][2]):
             best = ((ex, ey), loc)
     if best is None:
         return None
