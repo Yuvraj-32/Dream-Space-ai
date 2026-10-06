@@ -20,6 +20,8 @@ DOOR_EXACT = ("dr", "drs")
 WINDOW_HINTS = ("window", "ventan", "glaz", "fenet", "wind")
 WINDOW_EXACT = ("win", "wdw")
 ON_WALL_TOL = 0.20      # m beyond the wall's half thickness
+DOOR_ATTACH_MAX = 2.0   # m: farthest a door may sit from the wall it is attached to
+DOOR_HINGE_TOL = 0.30   # door hinges are often drawn a little off the wall face
 SPAN_REACH = 1.50       # an opening may sit in a gap up to this far past a wall piece's end
 BRIDGE_GAP = 0.30       # join wall pieces whose ends are this close to the opening
 
@@ -43,14 +45,14 @@ def _frame(w):
     return L, ux, uy, -uy, ux
 
 
-def _locate(px, py, walls):
+def _locate(px, py, walls, tol=ON_WALL_TOL):
     """Nearest wall line carrying point P: (index, t along wall, perpendicular dist)."""
     best = None
     for i, w in enumerate(walls):
         L, ux, uy, nx, ny = _frame(w)
         t = (px - w[0]) * ux + (py - w[1]) * uy
         d = abs((px - w[0]) * nx + (py - w[1]) * ny)
-        if d > w[4] / 2.0 + ON_WALL_TOL or t < -SPAN_REACH or t > L + SPAN_REACH:
+        if d > w[4] / 2.0 + tol or t < -SPAN_REACH or t > L + SPAN_REACH:
             continue
         outside = max(0.0, -t, t - L)
         key = (outside > 0, d + outside)
@@ -77,7 +79,7 @@ def _door_from_arc(arc, walls):
     cx, cy, r, sweep = arc[0], arc[1], arc[2], arc[3]
     if not (80.0 <= sweep <= 100.0 and 0.5 <= r <= 1.3):
         return None
-    hinge = _locate(cx, cy, walls)
+    hinge = _locate(cx, cy, walls, tol=DOOR_HINGE_TOL)
     if hinge is None:
         return None
     # Which arc end lies along the hinge's wall? That's the closed-door position.
@@ -88,7 +90,14 @@ def _door_from_arc(arc, walls):
         if loc and _same_wall_line(walls[loc[0]], walls[hinge[0]]) and (best is None or loc[2] < best[1][2]):
             best = ((ex, ey), loc)
     if best is None:
-        return None
+        # Door at a wall's end or corner: its closed end lands on a perpendicular wall
+        # or on nothing. Still a door when one end of the swing runs along the hinge's wall.
+        _, ux, uy, _, _ = _frame(walls[hinge[0]])
+        along = [((ex - cx) * ux + (ey - cy) * uy) / max(1e-9, math.hypot(ex - cx, ey - cy)) for ex, ey in ends]
+        k = max(range(2), key=lambda i: abs(along[i]))
+        if abs(along[k]) < 0.9:
+            return None
+        best = (ends[k], None)
     (ex, ey), _ = best
     return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r}
 
@@ -174,7 +183,9 @@ def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
     for op in sorted(found, key=lambda o: o["type"] != "door"):  # doors win overlaps
         walls, placed = _place(op, walls)
         if placed is None:
-            continue
+            if op["type"] != "door":
+                continue
+            placed = dict(op)   # a door with no wall under it (wall stops short): keep it; attach_indices finds a wall
         if any(_overlap(o, placed) for o in openings):
             _merge_into(openings, placed)
             continue
@@ -240,4 +251,17 @@ def attach_indices(walls, openings):
         loc = _locate(o["x"], o["y"], [list(w) for w in walls])
         if loc is not None:
             out.append({**o, "wall_index": loc[0]})
+        elif o["type"] == "door":
+            # A door at the end of a wall that stops short (no wall carries it) is still a
+            # door: attach it to the nearest wall instead of dropping it.
+            near = min(((_dist_seg(o["x"], o["y"], w), i) for i, w in enumerate(walls)), default=None)
+            if near is not None and near[0] <= DOOR_ATTACH_MAX:
+                out.append({**o, "wall_index": near[1]})
     return out
+
+
+def _dist_seg(px, py, w):
+    dx, dy = w[2] - w[0], w[3] - w[1]
+    l2 = dx * dx + dy * dy
+    u = max(0.0, min(1.0, ((px - w[0]) * dx + (py - w[1]) * dy) / l2)) if l2 else 0.0
+    return math.hypot(px - (w[0] + u * dx), py - (w[1] + u * dy))

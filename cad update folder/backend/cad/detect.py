@@ -21,6 +21,7 @@ from .openings import attach_indices, find_openings, is_door_name, is_window_nam
 from .pipeline import INSPECT_VERSION, inspect_file, session_dir
 from .render import render_preview
 from .rooms import find_rooms
+from .tidy import tidy_walls
 from .walls import build_walls
 
 TARGET_LONG_PX = 2000
@@ -131,7 +132,9 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
     walls, openings = find_openings(walls, loose_arcs, door_blocks, window_blocks, window_segs)
     # Windows drawn as plain lines (any layer) leave gaps in the walls: bridge them.
     walls, gap_windows = bridge_windows(walls, all_segs, [(o["x"], o["y"]) for o in openings])
-    openings = attach_indices(walls, openings + gap_windows)
+    openings = openings + gap_windows
+    walls, tidy_stats = tidy_walls(walls, openings)   # fixtures/stair blobs/stubs out, open corners closed
+    openings = attach_indices(walls, openings)
     rooms = find_rooms(walls, texts, W_m, H_m)
 
     ppm = TARGET_LONG_PX / (max(W_m, H_m) + 2 * MARGIN_M)
@@ -160,6 +163,7 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
         "doors": sum(1 for o in result["openings"] if o["type"] == "door"),
         "windows": sum(1 for o in result["openings"] if o["type"] == "window"),
         "wall_pairing": wall_info,
+        "tidy": tidy_stats,
         "units": {"name": units_name or insp["units"]["name"], "metres_per_unit": mpu},
         "scale_ft_per_px": round(ft_per_px, 6),
         "label_dim_check": _label_check(result["rooms"]),

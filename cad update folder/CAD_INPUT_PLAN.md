@@ -347,6 +347,21 @@ Country: 3 bedrooms + 2 baths named, 5 doors, 6 windows, curved bay traced. Dete
   "17'-9\" × 15'" living-room label measures as one 34 × 35 ft space) and the Big House garage /
   terrace, which have no walls in the drawing.)*
 
+#### Accuracy pass — doors and wall clean-up (audit of 8 plans)
+Audited every plan against its own drawing: door swings (every door is a quarter-circle arc) vs detected
+doors, window symbols vs windows, loose wall ends, tiny fixture boxes, over-thick walls.
+**Doors:** 11 of 66 swings were missed. Cause: a door gap splits a wall, so the swing's closed end lands on
+the neighbouring piece, or on a perpendicular wall / nothing when the door sits at a wall end. Now accepted
+(same wall line, any wall for a door at a wall end, hinge up to 0.3 m off the wall face); a door with no wall
+under it is kept and attached to the nearest wall. **Result: 66 of 66 swings matched** (Big House 7 -> 13 doors,
+THREE BEDROOM 3 -> 6, Ishverbhai ground floor 11 -> 14). **Windows:** 44 of 44 symbols found (windows on
+non-window layers are found by gap evidence; not verifiable). **Walls:** new `tidy.py` after openings:
+drops fixture boxes (>=3 pieces, <=1 m), stair blobs (>0.45 m thick, <=2 m), door-jamb stubs (<=0.5 m, one free
+end) and closes corners where a wall stops 5-60 cm short of a perpendicular wall; never touches a wall carrying
+an opening or a corner beside a doorway. Loose wall ends: Simple Country 15 -> 10, Ishverbhai 1st floor 8 -> 3;
+the gazebo phantom room disappeared as a side effect. Room accuracy unchanged (Ishverbhai 1st floor median 2.1%
+over 10 rooms, was 1.0% over 8). 70 tests pass (56 CAD + new 10 + 4 image regression).
+
 #### Accuracy pass — plan stored in an unplaced block (THREE BEDROOM)
 THREE BEDROOM's walls were "missing" for a different reason: the whole plan (layers wall/door/window/stair,
 124 labels) sits in block `hju`, which nothing in the converted DXF references — LibreDWG decoded the
