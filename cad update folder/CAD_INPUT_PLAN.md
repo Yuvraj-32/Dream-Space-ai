@@ -362,6 +362,18 @@ an opening or a corner beside a doorway. Loose wall ends: Simple Country 15 -> 1
 the gazebo phantom room disappeared as a side effect. Room accuracy unchanged (Ishverbhai 1st floor median 2.1%
 over 10 rooms, was 1.0% over 8). 70 tests pass (56 CAD + new 10 + 4 image regression).
 
+#### Accuracy pass — open door leaves (user report)
+User: doors are mostly drawn open, and some get detected as the open leaf line plus a door placed on it.
+Confirmed in Big House: the open leaf of a door was drawn as two WALL-layer lines (0.85 m long, 0.15 m apart —
+a wall-thick slab, starting 0.11 m past the hinge). Wall pairing turned them into a fake 0.9 m wall, and the door
+was placed on it instead of in the real gap in the horizontal wall. New `leaves.py`: (1) lines running exactly
+hinge -> arc end (one radius) are leaves; (2) lines along the hinge -> arc-end direction that form a thin
+(<= 6 cm) double-line slab are leaves; (3) after pairing, a wall one door-width long that starts at a hinge and runs
+along it is a leaf drawn wall-thick. A first, broader version also removed real short wall pieces and pushed
+Ishverbhai ground-floor room error from 4.3% to 22.1%; the stricter rules above fixed that (it is now 2.2%, better
+than before, because real leaf lines no longer pair with wall faces). A synthetic open-door DXF test fails without
+the fix and passes with it. Across the 8 plans exactly one fake leaf wall existed (Big House). 74 tests pass.
+
 #### Accuracy pass — plan stored in an unplaced block (THREE BEDROOM)
 THREE BEDROOM's walls were "missing" for a different reason: the whole plan (layers wall/door/window/stair,
 124 labels) sits in block `hju`, which nothing in the converted DXF references — LibreDWG decoded the

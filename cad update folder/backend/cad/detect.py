@@ -17,6 +17,7 @@ from .converter import CadError
 from .layers import ROLES
 from .loader import NAME_TO_M
 from .gaps import bridge_windows
+from .leaves import drop_door_leaves, drop_leaf_walls
 from .openings import attach_indices, find_openings, is_door_name, is_window_name
 from .pipeline import INSPECT_VERSION, inspect_file, session_dir
 from .render import render_preview
@@ -128,7 +129,13 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
         elif role == "window":
             window_segs.extend(seg_m(s) for s in r.segs)
 
+    # Door leaf lines (hinge -> arc end, one radius long) are not wall faces.
+    door_arcs = loose_arcs + [a for blk in door_blocks for a in blk["arcs"]]
+    wall_segs, leaves_dropped = drop_door_leaves(wall_segs, door_arcs)
     walls, wall_info = build_walls(wall_segs, wall_arcs)
+    walls, leaf_walls = drop_leaf_walls(walls, door_arcs)
+    wall_info["door_leaf_lines_removed"] = leaves_dropped
+    wall_info["door_leaf_walls_removed"] = leaf_walls
     walls, openings = find_openings(walls, loose_arcs, door_blocks, window_blocks, window_segs)
     # Windows drawn as plain lines (any layer) leave gaps in the walls: bridge them.
     walls, gap_windows = bridge_windows(walls, all_segs, [(o["x"], o["y"]) for o in openings])
