@@ -362,6 +362,21 @@ an opening or a corner beside a doorway. Loose wall ends: Simple Country 15 -> 1
 the gazebo phantom room disappeared as a side effect. Room accuracy unchanged (Ishverbhai 1st floor median 2.1%
 over 10 rooms, was 1.0% over 8). 70 tests pass (56 CAD + new 10 + 4 image regression).
 
+#### Accuracy pass — a general rule for where every door goes (user: "set up a logic for all plans")
+Looked at every door of all eight plans on contact sheets (close-up of each door: arc, hinge, arc ends, wall,
+placed marker). Three failure patterns, one rule each:
+1. **Door placed along its open leaf** (Big House: the doorway is a horizontal gap, the open leaf stands vertically
+   along a long wall; the door was drawn on that wall). Rule: a door's closed position is the arc end whose chord
+   hinge -> end is NOT inside solid wall; and leaf lines running hinge -> an end mark THAT end as the open leaf
+   (`leaves.open_leaf_ends`), so the other end is the doorway.
+2. **Floating doors** (a doorway between two walls with no wall across it, or at a wall end: Gazebo, Simple Country,
+   Ishverbhai, THREE BEDROOM). Rule: a door must sit on a wall running along its chord; if none does, add a short wall
+   along the chord (thickness of the wall at the hinge) and place the door on it; neighbours join it.
+3. **Two different doors merged into one** (Simple Country: two doors on perpendicular walls, merged into a floating
+   "double door"). Rule: openings merge only if their chords are parallel and nearly collinear (a real double door).
+Guarantee: tests/test_doorways.py checks that no door or window in any real plan floats off its wall; without the new
+logic it fails on 3 of 4 plans (doors 44-74 px off). 77 tests pass; room-size accuracy unchanged.
+
 #### Accuracy pass — open door leaves (user report)
 User: doors are mostly drawn open, and some get detected as the open leaf line plus a door placed on it.
 Confirmed in Big House: the open leaf of a door was drawn as two WALL-layer lines (0.85 m long, 0.15 m apart —

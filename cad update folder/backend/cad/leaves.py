@@ -127,3 +127,23 @@ def drop_leaf_walls(walls, door_arcs):
         else:
             kept.append(w)
     return kept, dropped
+
+
+def open_leaf_ends(segs, door_arcs):
+    """For each door arc, which end (0 or 1, as in arc[4:6] / arc[6:8]) is the OPEN leaf, judged by
+    leaf lines (any layer) running from the hinge toward it: a single hinge -> end line of one radius,
+    or a thin double-line slab. None when neither or both ends show leaf lines. This is the best
+    evidence for which end is the closed (doorway) position: the other one."""
+    out = []
+    for a in door_arcs:
+        if not (80.0 <= a[3] <= 100.0 and 0.5 <= a[2] <= 1.3):
+            out.append(None)
+            continue
+        hinge, ends = (a[0], a[1]), ((a[4], a[5]), (a[6], a[7]))
+        has = []
+        for e in ends:
+            found = any(_is_exact_leaf(s, hinge, ends, a[2]) and _is_leaf(s, hinge, e, a[2]) for s in segs) or any(
+                _is_leaf(s, hinge, e, a[2]) and _has_slab_partner(s, segs) for s in segs)
+            has.append(found)
+        out.append(0 if has[0] and not has[1] else 1 if has[1] and not has[0] else None)
+    return out

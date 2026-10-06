@@ -17,7 +17,7 @@ from .converter import CadError
 from .layers import ROLES
 from .loader import NAME_TO_M
 from .gaps import bridge_windows
-from .leaves import drop_door_leaves, drop_leaf_walls
+from .leaves import drop_door_leaves, drop_leaf_walls, open_leaf_ends
 from .openings import attach_indices, find_openings, is_door_name, is_window_name
 from .pipeline import INSPECT_VERSION, inspect_file, session_dir
 from .render import render_preview
@@ -108,11 +108,14 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
 
     wall_segs, wall_arcs, window_segs, loose_arcs, texts = [], [], [], [], []
     all_segs = []  # every straight line, any layer: evidence for window gaps
+    symbol_segs = []  # lines inside door/window symbols: not wall/window evidence, but they show leaves
     for i in members:
         r = records[i]
         if r.text:
             texts.append((*to_m(*r.center), r.text))
         if i in in_symbol:
+            if r.segs and r.kind != "ARC":
+                symbol_segs.extend(seg_m(sg) for sg in r.segs)
             continue
         if r.segs and r.kind != "ARC":
             all_segs.extend(seg_m(sg) for sg in r.segs)
@@ -129,8 +132,15 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
         elif role == "window":
             window_segs.extend(seg_m(s) for s in r.segs)
 
+    # Leaf lines show which end of each swing is the OPEN leaf; the other end is the doorway.
+    all_arcs = loose_arcs + [a for blk in door_blocks for a in blk["arcs"]]
+    hints = open_leaf_ends(all_segs + symbol_segs, all_arcs)
+    hint_of = {id(a): h for a, h in zip(all_arcs, hints)}
+    loose_arcs = [a + (hint_of[id(a)],) if hint_of[id(a)] is not None else a for a in loose_arcs]
+    for blk in door_blocks:
+        blk["arcs"] = [a + (hint_of[id(a)],) if hint_of[id(a)] is not None else a for a in blk["arcs"]]
     # Door leaf lines (hinge -> arc end, one radius long) are not wall faces.
-    door_arcs = loose_arcs + [a for blk in door_blocks for a in blk["arcs"]]
+    door_arcs = [a[:8] for a in loose_arcs] + [a[:8] for blk in door_blocks for a in blk["arcs"]]
     wall_segs, leaves_dropped = drop_door_leaves(wall_segs, door_arcs)
     walls, wall_info = build_walls(wall_segs, wall_arcs)
     walls, leaf_walls = drop_leaf_walls(walls, door_arcs)
