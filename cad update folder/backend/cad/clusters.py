@@ -183,6 +183,7 @@ def find_clusters(records, metres_per_unit, layer_roles):
     hollow = [g for g in groups
               if _is_hollow_frame(records, g, metres_per_unit) and _encloses_other(records, g, groups, metres_per_unit)]
     groups = [g for g in groups if not any(g is h for h in hollow)]
+    groups = _split_abutting(records, groups, metres_per_unit)
     groups = _merge_nested(records, groups, metres_per_unit)
     kept, dropped_small = [], 0
     for g in groups:
@@ -246,6 +247,37 @@ def _encloses_other(records, group, groups, metres_per_unit):
         if x0 < (ox0 + ox1) / 2.0 < x1 and y0 < (oy0 + oy1) / 2.0 < y1:
             return True
     return False
+
+
+FINE_CELL_M = 0.25
+SPLIT_MIN_LONG_M = 4.0       # each part of a split must be at least this big (a room-sized plan)
+SPLIT_MIN_SHARE = 0.2        # ... and hold at least this share of the group's line segments
+
+
+def _split_abutting(records, groups, metres_per_unit):
+    """Floor plans drawn side by side only ~0.4 m apart (AR_261009: three floors in a row) are glued
+    into one group by the 0.5 m grid. Regroup a group at a finer grid; if that gives two or more
+    plan-sized parts, they are separate drawings. A single plan breaks into one big part plus
+    crumbs at the finer grid, so it is left alone."""
+    out = []
+    for g in groups:
+        long_m = _bbox_of(records, g, metres_per_unit)[1]
+        if long_m < 2 * SPLIT_MIN_LONG_M:
+            out.append(g)
+            continue
+        total = sum(len(records[i].segs) for i in g if records[i].segs) or 1
+        parts = _components(records, g, FINE_CELL_M / metres_per_unit)
+        big = [p for p in parts
+               if _bbox_of(records, p, metres_per_unit)[1] >= SPLIT_MIN_LONG_M
+               and sum(len(records[i].segs) for i in p if records[i].segs) >= SPLIT_MIN_SHARE * total]
+        if len(big) >= 2:
+            out.extend(big)
+            leftovers = set(g) - {i for p in big for i in p}
+            if leftovers:
+                out.append(list(leftovers))      # crumbs: dropped or attached later like any small group
+        else:
+            out.append(g)
+    return out
 
 
 def _merge_nested(records, groups, metres_per_unit):

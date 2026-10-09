@@ -17,7 +17,7 @@ from .orphans import flatten_blocks, plan_blocks
 from .render import render_cluster
 from .units import resolve_units
 
-INSPECT_VERSION = 9
+INSPECT_VERSION = 10
 
 
 def session_dir(cache_root, session_id):
