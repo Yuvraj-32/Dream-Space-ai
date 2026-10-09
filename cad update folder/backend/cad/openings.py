@@ -199,6 +199,13 @@ def _window_from_points(points, walls):
     return {"type": "window", "x": w[0] + ux * mid, "y": w[1] + uy * mid, "width": width}
 
 
+def _is_thin_strip(points):
+    """Block extent at least 0.5 m long and under 0.3 m across (a window strip, not a door)."""
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    a, b = sorted((max(xs) - min(xs), max(ys) - min(ys)))
+    return b >= 0.5 and a <= 0.30 and b >= 3.0 * a
+
+
 def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
     """walls: [(x1,y1,x2,y2,t)] m. door_arcs: loose arc tuples. door_blocks /
     window_blocks: list of dicts {"arcs": [...], "points": [(x,y)...]} per block.
@@ -211,7 +218,9 @@ def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
         elif blk["points"]:
             win = _window_from_points(blk["points"], walls)
             if win:
-                win["type"] = "door"
+                # No swing arc: a long thin strip on a door/window layer is a window
+                # (sliding glass panel), anything else keeps the old reading as a door.
+                win["type"] = "window" if _is_thin_strip(blk["points"]) else "door"
                 found.append(win)
     for a in door_arcs:
         d = _door_from_arc(a, walls)
@@ -302,7 +311,13 @@ def _overlap(o, p):
     if abs(ux * vy - uy * vx) > math.sin(math.radians(15.0)):
         return False
     off = abs((p["x"] - o["x"]) * -uy + (p["y"] - o["y"]) * ux)
-    return off <= 0.25
+    if off > 0.25:
+        return False
+    # Two leaves of a double door swing toward each other (hinge->doorway chords opposed). Chords
+    # pointing the same way, standing apart, are neighbouring single doors (stacked swings).
+    if ux * vx + uy * vy > 0 and math.hypot(o["x"] - p["x"], o["y"] - p["y"]) > 0.4 * min(o["width"], p["width"]):
+        return False
+    return True
 
 
 def _merge_into(openings, p):

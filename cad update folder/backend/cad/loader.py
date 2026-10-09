@@ -106,6 +106,22 @@ def _bulge_arc(e):
     return best
 
 
+def _ellipse_arc(e):
+    """Some CAD tools draw door swings as ELLIPSE entities (AR_261009). A circular one
+    (minor/major ratio ~1) is an arc: return (cx, cy, r, sweep, sx, sy, ex, ey) in WCS."""
+    try:
+        if abs(e.dxf.ratio - 1.0) > 0.02:
+            return None
+        sweep = math.degrees((e.dxf.end_param - e.dxf.start_param) % (2 * math.pi))
+        if sweep < 1.0 or sweep > 359.0:
+            return None          # a full ellipse is a circle, not a swing
+        c = e.dxf.center
+        sp, ep = e.start_point, e.end_point
+        return (c.x, c.y, float(e.dxf.major_axis.magnitude), sweep, sp.x, sp.y, ep.x, ep.y)
+    except Exception:
+        return None
+
+
 def _record_for(e, layer, block, top, flat_tol):
     """One flattened record for a non-INSERT entity, or None to skip."""
     from ezdxf import path as ezpath
@@ -133,6 +149,8 @@ def _record_for(e, layer, block, top, flat_tol):
             c = e.ocs().to_wcs(e.dxf.center)
             sp, ep = e.start_point, e.end_point
             arc = (c.x, c.y, float(e.dxf.radius), sweep, sp.x, sp.y, ep.x, ep.y)
+        elif kind == "ELLIPSE":
+            arc = _ellipse_arc(e)
         return Rec(layer, kind, block, _bbox_of_points(pts), segs=_segments_from_points(pts), arc=arc, top=top)
 
     if kind in ("TEXT", "MTEXT"):

@@ -476,3 +476,11 @@ stacked into one building, editing/saving back to DWG, `.zip` uploads (open deci
 3. **Frontend CAD files location:** default **inside `cad update folder/frontend`** with the
    Vite alias. If that proves fragile, fallback is `frontend/src/cad/` (I'll ask first).
 4. **Pushing:** default **commit per phase on `Yuvraj`, push only when you ask.**
+
+### Accuracy pass: AR_261009_NBR_Presentation.dwg (unseen file)
+- Floor plans drawn ~0.4 m apart were glued into one drawing; `clusters._split_abutting` regroups at 0.25 m (4 plans found).
+- Door swings in this file are ELLIPSE entities (circular, ~90 deg), not ARCs: `loader._ellipse_arc` reads them (door swing arcs 0 -> 7 per plan).
+- Door/window layer blocks with no swing arc and a long thin shape (>=0.5 m long, <0.3 m across) are windows, not doors (`openings._is_thin_strip`).
+- Same-direction stacked swings stay separate doors; only opposed swings (hinges at the outer ends) merge into a double door.
+- Preview PNG cache key now includes the cluster bbox (stale preview from an older clustering was shown for a re-numbered cluster).
+- INSPECT_VERSION 11. Audit of the 8 earlier plans unchanged; 85 tests pass.

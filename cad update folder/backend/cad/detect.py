@@ -161,7 +161,7 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
     def px(x, y):
         return (int(round((x + MARGIN_M) * ppm)), int(round((H_m + MARGIN_M - y) * ppm)))
 
-    preview_name = _preview_name(cluster_id, roles, mpu)
+    preview_name = _preview_name(cluster_id, roles, mpu, cluster["bbox"])
     preview_path = os.path.join(session_dir(cache_root, insp["session_id"]), preview_name)
     if not os.path.isfile(preview_path):
         render_preview(records, members, roles, preview_path, img_w, img_h,
@@ -197,8 +197,9 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
     return result
 
 
-def _preview_name(cluster_id, roles, mpu):
-    key = json.dumps([sorted(roles.items()), mpu]).encode()
+def _preview_name(cluster_id, roles, mpu, bbox):
+    # the bbox is part of the key: cluster ids can point at different drawings after a re-inspect
+    key = json.dumps([sorted(roles.items()), mpu, [round(v, 1) for v in bbox]]).encode()
     return f"preview_{cluster_id}_{hashlib.sha1(key).hexdigest()[:10]}.png"
 
 
