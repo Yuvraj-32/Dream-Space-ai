@@ -104,7 +104,11 @@ def pair_faces(segs):
         all_cand.append(cand)
 
     modes = _thickness_modes(all_cand)
-    usable = [[c for c in cands if _near_mode(abs(c[0]), modes)] for cands in all_cand]
+    capped = _cap_finder(segs)
+    # A pair whose ends are joined by short cap lines is a closed wall outline: a wall whatever its
+    # thickness, even when that thickness is too rare to show up as a histogram mode.
+    usable = [[c for c in cands if _near_mode(abs(c[0]), modes) or capped(lines[i], lines[c[3]])]
+              for i, cands in enumerate(all_cand)]
     for i, a in enumerate(lines):
         cand = sorted(usable[i], key=lambda c: abs(c[0]))
         covered = []
@@ -117,6 +121,37 @@ def pair_faces(segs):
                 paired_len += p1 - p0
             covered.append((lo, hi))
     return pieces, paired_len, total, modes
+
+
+def _cap_finder(segs, cell=0.05, tol=0.02, min_len=0.05, max_len=0.40):
+    """capped(a, b): True when a short segment joins an end of line a to an end of line b."""
+    short = [t for t in segs if min_len <= math.hypot(t[2] - t[0], t[3] - t[1]) <= max_len]
+    grid = {}
+    for k, t in enumerate(short):
+        for x, y in ((t[0], t[1]), (t[2], t[3])):
+            grid.setdefault((int(x // cell), int(y // cell)), []).append((k, x, y))
+
+    def near(x, y):
+        found = set()
+        cx, cy = int(x // cell), int(y // cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for k, px, py in grid.get((cx + dx, cy + dy), ()):
+                    if math.hypot(px - x, py - y) <= tol:
+                        found.add(k)
+        return found
+
+    def capped(a, b):
+        for ax, ay in ((a.x1, a.y1), (a.x2, a.y2)):
+            ka = near(ax, ay)
+            if not ka:
+                continue
+            for bx, by in ((b.x1, b.y1), (b.x2, b.y2)):
+                if ka & near(bx, by):
+                    return True
+        return False
+
+    return capped
 
 
 def _partner_prefers_other(a, p0, p1, dist, i, b, b_cands):

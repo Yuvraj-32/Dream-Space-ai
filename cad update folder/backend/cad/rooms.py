@@ -92,9 +92,32 @@ def seal_gaps(walls):
                 if SEAL_RAY_M[0] <= s <= SEAL_RAY_M[1] and -v[4] / 2.0 <= u <= Lv + v[4] / 2.0:
                     if best is None or s < best[0]:
                         best = (s, (px + dx * s, py + dy * s))
+            if best is None:
+                best = _corner_gap(walls, info, i, px, py)
             if best is not None:
                 seals.append((px, py, best[1][0], best[1][1]))
     return seals
+
+
+CORNER_GAP_M = 0.5      # two perpendicular wall ends this close are one corner left open
+
+
+def _corner_gap(walls, info, i, px, py):
+    """Nearest end of a perpendicular wall within CORNER_GAP_M of this wall end (a corner whose
+    two walls stop short of each other, e.g. beside a door), as (distance, point) or None."""
+    best = None
+    _, ux, uy = info[i]
+    for j, v in enumerate(walls):
+        if j == i:
+            continue
+        _, vx, vy = info[j]
+        if abs(ux * vy - uy * vx) < math.sin(math.radians(20.0)):
+            continue
+        for qx, qy in ((v[0], v[1]), (v[2], v[3])):
+            d = math.hypot(qx - px, qy - py)
+            if 0.05 < d <= CORNER_GAP_M and (best is None or d < best[0]):
+                best = (d, (qx, qy))
+    return best
 
 
 def find_rooms(walls, texts, width_m, height_m):

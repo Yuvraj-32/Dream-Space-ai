@@ -484,3 +484,7 @@ stacked into one building, editing/saving back to DWG, `.zip` uploads (open deci
 - Same-direction stacked swings stay separate doors; only opposed swings (hinges at the outer ends) merge into a double door.
 - Preview PNG cache key now includes the cluster bbox (stale preview from an older clustering was shown for a re-numbered cluster).
 - INSPECT_VERSION 11. Audit of the 8 earlier plans unchanged; 85 tests pass.
+- Walls: a pair of parallel faces joined by short cap lines (a closed thin outline) is accepted whatever its thickness (`walls._cap_finder`); 0.15 m walls were being dropped because that thickness was not a histogram mode.
+- Doors: a quarter swing with a leaf-line hint but no wall at its hinge is still a door (only when the drawing has walls).
+- Rooms: perpendicular wall ends within 0.5 m (corner left open beside a door) get a virtual seal (`rooms._corner_gap`).
+- Result on AR_261009 plans: c3 3->5 rooms, c2 5->6 (bedroom now closed); Ishverbhai label check unchanged (2.2% / 2.1%); 85 tests pass.

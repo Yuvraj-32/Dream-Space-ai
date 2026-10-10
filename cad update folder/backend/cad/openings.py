@@ -121,6 +121,12 @@ def _door_from_arc(arc, walls):
         return None
     hinge = _locate(cx, cy, walls, tol=DOOR_HINGE_TOL)
     if hinge is None:
+        # No wall at the hinge (the wall there was not detected). A quarter swing with a leaf line
+        # is still a door: the leaf hint says which end is the open one.
+        if walls and len(arc) > 8 and arc[8] in (0, 1):   # (no walls at all: nothing to hang a door on)
+            ex, ey = (arc[4], arc[5]), (arc[6], arc[7])
+            ex, ey = (ex, ey)[1 - arc[8]]
+            return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r, "chord": (cx, cy, ex, ey)}
         return None
     # Which arc end lies along the hinge's wall? That's the closed-door position.
     ends = [(arc[4], arc[5]), (arc[6], arc[7])]
