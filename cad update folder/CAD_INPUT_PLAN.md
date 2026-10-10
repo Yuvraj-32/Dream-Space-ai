@@ -488,3 +488,4 @@ stacked into one building, editing/saving back to DWG, `.zip` uploads (open deci
 - Doors: a quarter swing with a leaf-line hint but no wall at its hinge is still a door (only when the drawing has walls).
 - Rooms: perpendicular wall ends within 0.5 m (corner left open beside a door) get a virtual seal (`rooms._corner_gap`).
 - Result on AR_261009 plans: c3 3->5 rooms, c2 5->6 (bedroom now closed); Ishverbhai label check unchanged (2.2% / 2.1%); 85 tests pass.
+- Rooms: an unlabelled cubicle <=3 m2 touching a bath is named bath (shower stall). Every door swing in the four AR plans now becomes a door (double doors merge); rooms carry the drawing's own label text in `label`.

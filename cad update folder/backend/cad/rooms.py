@@ -170,5 +170,25 @@ def find_rooms(walls, texts, width_m, height_m):
             "label": label,
             "label_dim_ft": parse_label_dims_ft(label) if label else None,
         })
+    _name_shower_stalls(rooms)
     rooms.sort(key=lambda r: r["area_m2"], reverse=True)
     return rooms
+
+
+SHOWER_MAX_M2 = 3.0      # an unlabelled cubicle this small beside a bathroom is its shower
+SHOWER_TOUCH_M = 0.35
+
+
+def _name_shower_stalls(rooms):
+    baths = [r for r in rooms if r["type"] == "bath"]
+    for r in rooms:
+        if r["type"] != "undefined" or r["area_m2"] > SHOWER_MAX_M2:
+            continue
+        x, y, w, h = r["bbox_m"]
+        for b in baths:
+            bx, by, bw, bh = b["bbox_m"]
+            gap_x = max(bx - (x + w), x - (bx + bw), 0.0)
+            gap_y = max(by - (y + h), y - (by + bh), 0.0)
+            if gap_x <= SHOWER_TOUCH_M and gap_y <= SHOWER_TOUCH_M:
+                r["type"] = "bath"
+                break
