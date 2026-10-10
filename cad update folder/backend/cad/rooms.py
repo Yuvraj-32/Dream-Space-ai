@@ -180,15 +180,56 @@ SHOWER_TOUCH_M = 0.35
 
 
 def _name_shower_stalls(rooms):
+    changed = True
+    while changed:                       # a stall beside a stall beside a bathroom
+        changed = _name_shower_pass(rooms)
+
+
+def _name_shower_pass(rooms):
+    changed = False
     baths = [r for r in rooms if r["type"] == "bath"]
     for r in rooms:
         if r["type"] != "undefined" or r["area_m2"] > SHOWER_MAX_M2:
             continue
         x, y, w, h = r["bbox_m"]
         for b in baths:
+            if b is r:
+                continue
             bx, by, bw, bh = b["bbox_m"]
             gap_x = max(bx - (x + w), x - (bx + bw), 0.0)
             gap_y = max(by - (y + h), y - (by + bh), 0.0)
             if gap_x <= SHOWER_TOUCH_M and gap_y <= SHOWER_TOUCH_M:
                 r["type"] = "bath"
+                changed = True
+                break
+    return changed
+
+
+STAIR_TREAD_M = (0.18, 0.40)    # spacing of stair treads
+STAIR_MIN_TREADS = 6
+
+
+def name_stair_rooms(rooms, segs):
+    """An unlabelled room holding a run of evenly spaced parallel lines (stair treads) is a
+    staircase; it is typed "entry" (circulation) with the label "STAIRS"."""
+    for r in rooms:
+        if r["type"] != "undefined":
+            continue
+        x, y, w, h = r["bbox_m"]
+        inside = [s for s in segs if x <= (s[0] + s[2]) / 2 <= x + w and y <= (s[1] + s[3]) / 2 <= y + h]
+        for horizontal in (True, False):
+            pos = []
+            for s in inside:
+                dx, dy = abs(s[2] - s[0]), abs(s[3] - s[1])
+                length = dx if horizontal else dy
+                across = dy if horizontal else dx
+                if across < 0.02 and length >= 0.5 * (w if horizontal else h):
+                    pos.append(round((s[1] + s[3]) / 2 if horizontal else (s[0] + s[2]) / 2, 2))
+            pos = sorted(set(pos))
+            run = best = 1
+            for a, b in zip(pos, pos[1:]):
+                run = run + 1 if STAIR_TREAD_M[0] <= b - a <= STAIR_TREAD_M[1] else 1
+                best = max(best, run)
+            if best >= STAIR_MIN_TREADS:
+                r["type"], r["label"] = "entry", "STAIRS"
                 break

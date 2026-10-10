@@ -8,7 +8,7 @@ ROOM_WORDS = {
     "bedroom": ["bed", "bedroom", "master", "guest room", "dormitorio", "recamara", "habitacion"],
     "living_room": ["living", "drawing room", "family", "lounge", "hall", "sala", "estar", "sit out", "sit-out"],
     "kitchen": ["kitchen", "kit.", "cocina", "pantry"],
-    "dining": ["dining", "comedor"],
+    "dining": ["dining", "dinning", "comedor"],
     "bath": ["bath", "toilet", "wc", "w.c", "wash", "shower", "powder", "bano", "baño", "aseo", "sanitario"],
     "closet": ["closet", "wardrobe", "dress", "vestidor"],
     "storage": ["store", "storage", "utility", "laundry", "lavanderia", "deposito", "bodega"],

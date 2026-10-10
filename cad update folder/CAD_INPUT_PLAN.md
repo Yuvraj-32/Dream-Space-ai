@@ -489,3 +489,4 @@ stacked into one building, editing/saving back to DWG, `.zip` uploads (open deci
 - Rooms: perpendicular wall ends within 0.5 m (corner left open beside a door) get a virtual seal (`rooms._corner_gap`).
 - Result on AR_261009 plans: c3 3->5 rooms, c2 5->6 (bedroom now closed); Ishverbhai label check unchanged (2.2% / 2.1%); 85 tests pass.
 - Rooms: an unlabelled cubicle <=3 m2 touching a bath is named bath (shower stall). Every door swing in the four AR plans now becomes a door (double doors merge); rooms carry the drawing's own label text in `label`.
+- Rooms: unlabelled room holding >=6 evenly spaced parallel treads is typed entry/label STAIRS (rooms.name_stair_rooms); 'dinning' spelling added to the dining vocabulary; shower-stall naming chains through neighbouring stalls. A looser 'any two tiny rooms are a bath' rule was tried and rejected (renamed 8 Ishverbhai rooms).

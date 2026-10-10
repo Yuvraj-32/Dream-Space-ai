@@ -21,7 +21,7 @@ from .leaves import drop_door_leaves, drop_leaf_walls, open_leaf_ends
 from .openings import attach_indices, find_openings, is_door_name, is_window_name
 from .pipeline import INSPECT_VERSION, inspect_file, session_dir
 from .render import render_preview
-from .rooms import find_rooms
+from .rooms import find_rooms, name_stair_rooms
 from .tidy import tidy_walls
 from .walls import build_walls
 
@@ -153,6 +153,7 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
     walls, tidy_stats = tidy_walls(walls, openings)   # fixtures/stair blobs/stubs out, open corners closed
     openings = attach_indices(walls, openings)
     rooms = find_rooms(walls, texts, W_m, H_m)
+    name_stair_rooms(rooms, all_segs)
 
     ppm = TARGET_LONG_PX / (max(W_m, H_m) + 2 * MARGIN_M)
     img_w = int(math.ceil((W_m + 2 * MARGIN_M) * ppm))
