@@ -205,6 +205,25 @@ def _window_from_points(points, walls):
     return {"type": "window", "x": w[0] + ux * mid, "y": w[1] + uy * mid, "width": width}
 
 
+def _strip_window_wall(points, walls, min_len=1.0):
+    """A long thin glazing strip (>= min_len) with no detected wall under it: the window plus the
+    wall it implies (thin partition / glazed edge), centred on the strip."""
+    if not _is_thin_strip(points):
+        return None
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    horizontal = (x1 - x0) >= (y1 - y0)
+    length = (x1 - x0) if horizontal else (y1 - y0)
+    if length < min_len:
+        return None
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    if _locate(cx, cy, walls, tol=0.3) is not None:
+        return None                      # a wall is there: the normal path handles it
+    t = max(0.1, min(x1 - x0, y1 - y0))
+    wall = [x0, cy, x1, cy, t] if horizontal else [cx, y0, cx, y1, t]
+    return {"type": "window", "x": cx, "y": cy, "width": length, "strip_wall": wall}
+
+
 def _is_thin_strip(points):
     """Block extent at least 0.5 m long and under 0.3 m across (a window strip, not a door)."""
     xs, ys = [p[0] for p in points], [p[1] for p in points]
@@ -222,7 +241,7 @@ def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
         if doors:
             found.extend(doors)
         elif blk["points"]:
-            win = _window_from_points(blk["points"], walls)
+            win = _window_from_points(blk["points"], walls) or _strip_window_wall(blk["points"], walls)
             if win:
                 # No swing arc: a long thin strip on a door/window layer is a window
                 # (sliding glass panel), anything else keeps the old reading as a door.
@@ -246,6 +265,10 @@ def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
     walls = [list(w) for w in walls]
     openings = []
     for op in sorted(found, key=lambda o: o["type"] != "door"):  # doors win overlaps
+        if "strip_wall" in op:
+            walls.append(op.pop("strip_wall"))
+            openings.append(op)
+            continue
         if op["type"] == "door" and "chord" in op and not _chord_on_wall(op["chord"], walls):
             walls.append(_door_wall(op, walls))        # no wall across this doorway: add the door's own
             placed = {"type": "door", "x": op["x"], "y": op["y"], "width": op["width"], "chord": op["chord"]}
