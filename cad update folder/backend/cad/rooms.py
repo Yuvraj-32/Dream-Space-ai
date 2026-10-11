@@ -171,8 +171,20 @@ def find_rooms(walls, texts, width_m, height_m):
             "label_dim_ft": parse_label_dims_ft(label) if label else None,
         })
     _name_shower_stalls(rooms)
+    _name_main_space(rooms)
     rooms.sort(key=lambda r: r["area_m2"], reverse=True)
     return rooms
+
+
+MAIN_SPACE_MIN_M2 = 15.0   # the big unlabelled room of a plan with no living room is its living room
+
+
+def _name_main_space(rooms):
+    if any(r["type"] == "living_room" for r in rooms):
+        return
+    big = [r for r in rooms if r["type"] == "undefined" and r["area_m2"] >= MAIN_SPACE_MIN_M2]
+    if big:
+        max(big, key=lambda r: r["area_m2"])["type"] = "living_room"
 
 
 SHOWER_MAX_M2 = 3.0      # an unlabelled cubicle this small beside a bathroom is its shower
