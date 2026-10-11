@@ -176,7 +176,7 @@ def find_rooms(walls, texts, width_m, height_m):
     return rooms
 
 
-MAIN_SPACE_MIN_M2 = 15.0   # the big unlabelled room of a plan with no living room is its living room
+MAIN_SPACE_MIN_M2 = 20.0   # the big unlabelled room of a plan with no living room is its living room
 
 
 def _name_main_space(rooms):
@@ -219,6 +219,24 @@ def _name_shower_pass(rooms):
 
 STAIR_TREAD_M = (0.18, 0.40)    # spacing of stair treads
 STAIR_MIN_TREADS = 6
+STAIR_MIN_WIDTH_M = 0.9
+
+
+def _longest_tread_run(pos, tol=0.04):
+    """Most lines in an evenly spaced run (spacing within STAIR_TREAD_M), ignoring stray lines."""
+    best = 1
+    for i, p0 in enumerate(pos):
+        for q in pos[i + 1:]:
+            d = q - p0
+            if d > STAIR_TREAD_M[1]:
+                break
+            if d < STAIR_TREAD_M[0]:
+                continue
+            n = 1
+            while any(abs(p0 + n * d - x) <= tol for x in pos):
+                n += 1
+            best = max(best, n)
+    return best
 
 
 def name_stair_rooms(rooms, segs):
@@ -235,13 +253,10 @@ def name_stair_rooms(rooms, segs):
                 dx, dy = abs(s[2] - s[0]), abs(s[3] - s[1])
                 length = dx if horizontal else dy
                 across = dy if horizontal else dx
-                if across < 0.02 and length >= 0.5 * (w if horizontal else h):
+                if across < 0.02 and length >= STAIR_MIN_WIDTH_M:
                     pos.append(round((s[1] + s[3]) / 2 if horizontal else (s[0] + s[2]) / 2, 2))
             pos = sorted(set(pos))
-            run = best = 1
-            for a, b in zip(pos, pos[1:]):
-                run = run + 1 if STAIR_TREAD_M[0] <= b - a <= STAIR_TREAD_M[1] else 1
-                best = max(best, run)
+            best = _longest_tread_run(pos)
             if best >= STAIR_MIN_TREADS:
                 r["type"], r["label"] = "entry", "STAIRS"
                 break
