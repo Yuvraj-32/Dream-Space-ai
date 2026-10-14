@@ -6,7 +6,7 @@ and Indian-English terms found in the Phase 0 samples.
 """
 ROOM_WORDS = {
     "bedroom": ["bed", "bedroom", "master", "guest room", "dormitorio", "recamara", "habitacion"],
-    "living_room": ["living", "drawing room", "family", "lounge", "hall", "sala", "estar", "sit out", "sit-out"],
+    "living_room": ["living", "drawing room", "family", "lounge", "hall", "sala", "estar", "sit out", "sit-out", "seating room", "multi purpose", "multipurpose"],
     "kitchen": ["kitchen", "kit.", "cocina", "pantry"],
     "dining": ["dining", "dinning", "comedor"],
     "bath": ["bath", "toilet", "wc", "w.c", "wash", "shower", "powder", "bano", "baño", "aseo", "sanitario"],
@@ -15,14 +15,30 @@ ROOM_WORDS = {
     "office": ["study", "office", "estudio", "library"],
     "garage": ["garage", "parking", "car porch", "cochera", "garaje"],
     "outdoor": ["balcony", "terrace", "porch", "verandah", "veranda", "deck", "patio", "terraza", "balcon", "gazebo", "bbq"],
-    "entry": ["entrance", "entry", "foyer", "lobby", "passage", "corridor", "vestibule", "pasillo", "recibidor"],
+    "entry": ["entrance", "entry", "foyer", "lobby", "passage", "corridor", "vestibule", "pasillo", "recibidor", "arrival"],
     "pooja": ["pooja", "puja", "prayer", "mandir"],
 }
+
+def _unspace(text):
+    """'S H O W E R' (letter-spaced lettering) -> 'SHOWER'; other text unchanged."""
+    out, run = [], []
+    for tok in text.split():
+        if len(tok) == 1 and tok.isalpha():
+            run.append(tok)
+            continue
+        if run:
+            out.append("".join(run) if len(run) >= 4 else " ".join(run))
+            run = []
+        out.append(tok)
+    if run:
+        out.append("".join(run) if len(run) >= 4 else " ".join(run))
+    return " ".join(out)
+
 
 def room_type_for(text):
     """Map a CAD label ('BED ROOM - 3 12'-3\"X14'-0\"', 'SALA FAMILIAR') to an
     app room type, or None if it doesn't look like a room name."""
-    t = " " + " ".join(text.lower().replace("_", " ").split()) + " "
+    t = " " + " ".join(_unspace(text).lower().replace("_", " ").split()) + " "
     t = t.replace("bed room", "bedroom").replace("living room", "living").replace("dining room", "dining")
     for room_type, words in ROOM_WORDS.items():
         for w in words:

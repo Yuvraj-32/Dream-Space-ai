@@ -1245,7 +1245,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
         style={{ background: 'transparent' }}
       >
         <RendererSetup />
-        <CameraFit longM={buildingLongM} />
+        {detection?.stats?.engine === 'cad_vector' && <CameraFit longM={buildingLongM} />}
 
         {/* Lighting */}
         <ambientLight intensity={isWalkthrough ? 1.05 : isCinematic ? 0.65 : 0.4} />

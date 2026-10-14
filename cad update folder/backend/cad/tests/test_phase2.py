@@ -154,3 +154,17 @@ def test_route_detect_rejects_bad_input(client, payload, status):
 def test_route_preview_rejects_bad_paths(client):
     assert client.get("/cad/preview/0123456789abcdef/../../secret.png").status_code in (400, 404)
     assert client.get("/cad/preview/0123456789abcdef/plan.dxf").status_code == 400
+
+
+def test_route_progress(client):
+    assert client.get(f"/cad/progress/{NAME}").json()["step"] == 0     # before any inspect
+    assert client.post(f"/cad/inspect/{NAME}").status_code == 200
+    p = client.get(f"/cad/progress/{NAME}").json()
+    assert p["done"] is True and p["total"] == 6
+
+
+def test_vocab_letter_spaced_and_new_words():
+    from cad.vocab import room_type_for
+    assert room_type_for("S H O W E R") == "bath"
+    assert room_type_for("SEATING ROOM 19'-6\"X14'-0\"") == "living_room"
+    assert room_type_for("S I N K") is None

@@ -44,3 +44,9 @@ export const detectCad = (filename, { clusterId, layerRoles, units }) =>
     layer_roles: layerRoles,
     units,
   })
+
+export async function getCadProgress(filename) {
+  const res = await fetch(`${API_BASE}/cad/progress/${encodeURIComponent(filename)}`)
+  if (!res.ok) throw new Error(`Progress request failed (${res.status})`)
+  return res.json()
+}

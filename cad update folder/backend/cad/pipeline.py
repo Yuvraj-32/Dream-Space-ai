@@ -18,6 +18,34 @@ from .render import render_cluster
 from .units import resolve_units
 
 INSPECT_VERSION = 11
+REFLATTEN_MAX_RECORDS = 150_000
+
+
+STEPS = ["Converting the DWG", "Reading the drawing", "Expanding blocks and units",
+         "Finding layers", "Finding floor plans", "Drawing previews"]
+
+
+def _progress(sdir, step, started):
+    """Tell a polling client where inspect is (step 1..len(STEPS)); written atomically."""
+    data = {"step": step, "total": len(STEPS), "message": STEPS[step - 1] if 1 <= step <= len(STEPS) else "Done",
+            "elapsed_s": round(time.time() - started, 1), "done": step > len(STEPS)}
+    tmp = os.path.join(sdir, "progress.json.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, os.path.join(sdir, "progress.json"))
+    except OSError:
+        pass                              # progress is a courtesy: never fail inspect over it
+
+
+def read_progress(src_path, cache_root):
+    """Latest inspect progress for an uploaded file, or {"step": 0, "message": "Waiting"}."""
+    path = os.path.join(session_dir(cache_root, file_session_id(src_path)), "progress.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"step": 0, "total": len(STEPS), "message": "Waiting", "elapsed_s": 0, "done": False}
 
 
 def session_dir(cache_root, session_id):
@@ -37,14 +65,18 @@ def inspect_file(src_path, cache_root, use_cache=True):
             return cached
 
     timings = {}
+    started = time.time()
+    _progress(sdir, 1, started)
     t = time.time()
     dxf_path, source = ensure_dxf(src_path, sdir)
     timings["convert"] = round(time.time() - t, 2)
 
+    _progress(sdir, 2, started)
     t = time.time()
     doc, audit = load_doc(dxf_path)
     timings["read"] = round(time.time() - t, 2)
 
+    _progress(sdir, 3, started)
     t = time.time()
     code, header_name, header_mpu = header_units(doc)
     flat_mpu = header_mpu or 0.001
@@ -61,16 +93,19 @@ def inspect_file(src_path, cache_root, use_cache=True):
     units = resolve_units(records, header_name)
     units["insunits"] = code
     mpu = units["metres_per_unit"]
-    if not 0.5 <= mpu / flat_mpu <= 2.0:
-        # Curve-flattening tolerance was based on the wrong unit; redo it.
+    if not 0.5 <= mpu / flat_mpu <= 2.0 and len(records) <= REFLATTEN_MAX_RECORDS:
+        # Curve-flattening tolerance was based on the wrong unit; redo it. (Skipped on huge files:
+        # a second full pass would double the wait just to smooth curves a little.)
         records, flat_stats, inserts = flatten(doc, mpu)
     timings["flatten"] = round(time.time() - t, 2)
 
+    _progress(sdir, 4, started)
     t = time.time()
     layers = analyze_layers(doc, records, mpu)
     roles = {l["name"]: l["suggested_role"] for l in layers}
     timings["layers"] = round(time.time() - t, 2)
 
+    _progress(sdir, 5, started)
     t = time.time()
     clusters, cluster_stats = find_clusters(records, mpu, roles)
     recovered = {}
@@ -92,6 +127,7 @@ def inspect_file(src_path, cache_root, use_cache=True):
                 cluster_stats["recovered_blocks"] = sorted(spans)
     timings["clusters"] = round(time.time() - t, 2)
 
+    _progress(sdir, 6, started)
     t = time.time()
     thumbs_dir = os.path.join(sdir, "thumbs")
     os.makedirs(thumbs_dir, exist_ok=True)
@@ -120,6 +156,7 @@ def inspect_file(src_path, cache_root, use_cache=True):
     }
     with open(cache_json, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False)
+    _progress(sdir, len(STEPS) + 1, started)
     return result
 
 

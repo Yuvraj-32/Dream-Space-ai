@@ -2,6 +2,7 @@
 
   GET  /cad/health                         is LibreDWG's dwg2dxf available?
   POST /cad/inspect/{filename}             drawings, layers (suggested roles), units
+  GET  /cad/progress/{filename}            inspect progress (step n of N)
   GET  /cad/thumb/{session}/{cluster}.png  per-drawing thumbnail
   POST /cad/detect/{filename}              walls/openings/rooms for the chosen drawing
   GET  /cad/preview/{session}/{file}.png   editor background, same pixel space as /detect
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 
 from .converter import CadError, converter_info
 from .detect import detect_file
-from .pipeline import inspect_file, session_dir
+from .pipeline import inspect_file, read_progress, session_dir
 
 _UPLOAD_NAME_RE = re.compile(r"^[0-9a-f]{32}\.(dwg|dxf)$")
 _SESSION_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -58,6 +59,11 @@ def create_cad_router(upload_dir, cache_root):
         for c in result["clusters"]:
             c["thumbnail_url"] = f"/cad/thumb/{sid}/{c['id']}.png"
         return result
+
+    @router.get("/progress/{filename}")
+    def progress(filename: str):
+        """Where a running /cad/inspect is (step n of N), for a progress bar. Cheap; poll it."""
+        return read_progress(upload_path(filename), cache_root)
 
     @router.post("/detect/{filename}")
     def detect(filename: str, body: Optional[DetectRequest] = None):

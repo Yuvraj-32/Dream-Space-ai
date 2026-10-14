@@ -62,6 +62,26 @@ export default function DetectionStats({ detection, loading }) {
         )}
       </div>
 
+      {/* CAD (DWG/DXF) input: exact vector geometry, not a CV estimate */}
+      {stats.engine === 'cad_vector' && (
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div><b style={{ color: 'var(--text)' }}>Exact CAD geometry</b> (read from the file, not estimated)</div>
+          {stats.units?.name && <div>Drawing units: {stats.units.name}</div>}
+          {stats.scale_ft_per_px && <div>Scale: 1 px = {(stats.scale_ft_per_px * 12).toFixed(2)} in</div>}
+          {stats.label_dim_check?.rooms_checked > 0 && (
+            <div>
+              Room sizes vs drawing labels: {stats.label_dim_check.median_error_pct}% median error
+              ({stats.label_dim_check.rooms_checked} rooms checked)
+            </div>
+          )}
+          {(stats.tidy?.fixture_walls_dropped + stats.tidy?.stubs_dropped) > 0 && (
+            <div>
+              Cleaned up: {stats.tidy.fixture_walls_dropped} fixture outlines, {stats.tidy.stubs_dropped} stubs removed
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Real-world measurements (present when ?measure=true) */}
       {measurements && (
         <div style={{ marginTop: 12 }}>

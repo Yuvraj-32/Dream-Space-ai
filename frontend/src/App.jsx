@@ -7,6 +7,7 @@ import DetectionStats from './components/DetectionStats'
 import FloorPlanEditor from './components/FloorPlanEditor'
 import CadReviewPanel from '@cad/CadReviewPanel'
 import { cadUrl, detectCad, inspectCad } from '@cad/cadApi'
+import CadProgress from '@cad/CadProgress'
 import './index.css'
 
 const API_BASE = 'http://localhost:8001'
@@ -217,13 +218,7 @@ export default function App() {
             display: activeView === 'cad' ? 'flex' : 'none',
             flexDirection: 'column', background: 'var(--bg-deep)',
           }}>
-            {cadLoading && (
-              <div style={{ margin: 'auto', textAlign: 'center' }}>
-                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, margin: '0 auto 14px' }} />
-                <div style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>Reading CAD drawing…</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>Converting, finding drawings and layers</div>
-              </div>
-            )}
+            {cadLoading && <CadProgress filename={cadFile?.filename} />}
             {!cadLoading && cadInspect && (
               <CadReviewPanel
                 key={cadInspect.session_id}
