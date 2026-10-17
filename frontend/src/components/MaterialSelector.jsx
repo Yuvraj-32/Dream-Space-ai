@@ -46,11 +46,21 @@ export default function MaterialSelector({ selectedSurface, currentCustomization
   const customMaterials = listCustomMaterials()
 
   const isFloor = selectedSurface?.type === 'floor'
-  const title = isFloor ? 'Customize Floor' : `Customize Wall (${selectedSurface?.id})`
-  const defaultColor = isFloor ? '#141824' : '#f0f2f5'
+  const isRoom = selectedSurface?.type === 'room'
+  const isFloorLike = isFloor || isRoom          // rooms are floor patches, same defaults as the base floor
+  const sideLabel = selectedSurface?.side === 'back' ? 'Back Side' : 'Front Side'
+  const roomLabel = selectedSurface?.roomType
+    ? selectedSurface.roomType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    : null
+  const title = isFloor
+    ? 'Customize Floor'
+    : isRoom
+    ? `Customize Floor · ${roomLabel || 'This Room'}`
+    : `Customize Wall · ${sideLabel}`
+  const defaultColor = isFloorLike ? '#141824' : '#f0f2f5'
 
   const activeMaterialId =
-    currentCustomization?.materialId || (isFloor ? DEFAULT_FLOOR_MATERIAL_ID : DEFAULT_MATERIAL_ID)
+    currentCustomization?.materialId || (isFloorLike ? DEFAULT_FLOOR_MATERIAL_ID : DEFAULT_MATERIAL_ID)
   const activeDef = getMaterialDef(activeMaterialId)
   const activeColor = currentCustomization?.color || activeDef.defaultColor || defaultColor
 
@@ -127,7 +137,7 @@ export default function MaterialSelector({ selectedSurface, currentCustomization
   async function handleDelete(def) {
     await deleteCustomMaterial(def.id)
     if (activeMaterialId === def.id) {
-      const fallback = isFloor ? DEFAULT_FLOOR_MATERIAL_ID : DEFAULT_MATERIAL_ID
+      const fallback = isFloorLike ? DEFAULT_FLOOR_MATERIAL_ID : DEFAULT_MATERIAL_ID
       emit(fallback, getMaterialDef(fallback).defaultColor || defaultColor)
     }
   }

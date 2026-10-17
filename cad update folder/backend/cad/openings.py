@@ -1,0 +1,381 @@
+"""Doors and windows from CAD symbols, attached to (and bridging) walls. Metres, Y up.
+
+Doors: a door block's (or a loose) ~90° swing arc gives the hinge (arc centre)
+and width (radius); the arc end lying along the wall marks the closed door,
+so the opening spans hinge -> that end. Loose arcs are only accepted when both
+the hinge and that end sit on a wall line — that keeps round furniture out.
+
+Windows: window blocks, or small groups of window-layer lines, lying on a wall.
+
+Walls come out of walls.py split at every opening (the face lines stop at the
+gap). Each opening re-joins the wall pieces on either side of its gap into one
+wall, so the 3D view shows a wall with a door cut out (lintel above) instead
+of a full-height hole.
+"""
+import math
+import re
+
+DOOR_HINTS = ("door", "puert", "porte")
+DOOR_EXACT = ("dr", "drs")
+WINDOW_HINTS = ("window", "ventan", "glaz", "fenet", "wind")
+WINDOW_EXACT = ("win", "wdw")
+ON_WALL_TOL = 0.20      # m beyond the wall's half thickness
+DOOR_ATTACH_MAX = 2.0   # m: farthest a door may sit from the wall it is attached to
+DOOR_HINGE_TOL = 0.30   # door hinges are often drawn a little off the wall face
+SPAN_REACH = 1.50       # an opening may sit in a gap up to this far past a wall piece's end
+BRIDGE_GAP = 0.30       # join wall pieces whose ends are this close to the opening
+
+
+def _hint(name, prefixes, exact):
+    return any(tok in exact or tok.startswith(prefixes) for tok in re.findall(r"[a-z0-9]+", (name or "").lower()))
+
+
+def is_door_name(name):
+    return _hint(name, DOOR_HINTS, DOOR_EXACT)
+
+
+def is_window_name(name):
+    return _hint(name, WINDOW_HINTS, WINDOW_EXACT)
+
+
+def _frame(w):
+    dx, dy = w[2] - w[0], w[3] - w[1]
+    L = math.hypot(dx, dy)
+    ux, uy = dx / L, dy / L
+    return L, ux, uy, -uy, ux
+
+
+def _locate(px, py, walls, tol=ON_WALL_TOL):
+    """Nearest wall line carrying point P: (index, t along wall, perpendicular dist)."""
+    best = None
+    for i, w in enumerate(walls):
+        L, ux, uy, nx, ny = _frame(w)
+        t = (px - w[0]) * ux + (py - w[1]) * uy
+        d = abs((px - w[0]) * nx + (py - w[1]) * ny)
+        if d > w[4] / 2.0 + tol or t < -SPAN_REACH or t > L + SPAN_REACH:
+            continue
+        outside = max(0.0, -t, t - L)
+        key = (outside > 0, d + outside)
+        if best is None or key < best[0]:
+            best = (key, i, t, d)
+    return None if best is None else best[1:]
+
+
+def _same_wall_line(a, b):
+    """Same piece, or two pieces on one wall line (a door gap splits a wall in two,
+    so a swing's closed end usually lands on the far piece, not the hinge's piece)."""
+    if a is b:
+        return True
+    La, ux, uy, nx, ny = _frame(a)
+    Lb, vx, vy, _, _ = _frame(b)
+    if abs(ux * vy - uy * vx) > math.sin(math.radians(2.0)):
+        return False
+    off = abs(((b[0] + b[2]) / 2 - a[0]) * nx + ((b[1] + b[3]) / 2 - a[1]) * ny)
+    return off <= (a[4] + b[4]) / 4.0 + 0.05
+
+
+def _chord_covered(hx, hy, ex, ey, walls, frac=0.6):
+    """True if the chord hinge -> end mostly lies inside existing wall material."""
+    n, hit = 10, 0
+    for k in range(2, n + 1):                      # skip the first 20%: the hinge sits on a wall
+        t = k / n
+        px, py = hx + (ex - hx) * t, hy + (ey - hy) * t
+        if any(_dist_seg(px, py, w) <= w[4] / 2.0 + 0.05 for w in walls):
+            hit += 1
+    return hit / (n - 1) >= frac
+
+
+def _chord_on_wall(chord, walls):
+    """True if some wall runs along the door's chord (hinge -> closed end): parallel within 15 degrees
+    and the chord's midpoint within that wall's band. A closed door lies in a wall line."""
+    hx, hy, ex, ey = chord
+    cl = math.hypot(ex - hx, ey - hy)
+    if cl < 1e-9:
+        return False
+    cux, cuy = (ex - hx) / cl, (ey - hy) / cl
+    mx, my = (hx + ex) / 2.0, (hy + ey) / 2.0
+    for w in walls:
+        L, ux, uy, nx, ny = _frame(w)
+        if abs(cux * uy - cuy * ux) > math.sin(math.radians(15.0)):
+            continue
+        t = (mx - w[0]) * ux + (my - w[1]) * uy
+        d = abs((mx - w[0]) * nx + (my - w[1]) * ny)
+        if d <= w[4] / 2.0 + 0.12 and -SPAN_REACH <= t <= L + SPAN_REACH:
+            return True
+    return False
+
+
+def _door_wall(op, walls):
+    """A short wall along the door's chord, thick like the wall at the hinge, for a doorway that has
+    no wall across it (a door between two walls, or at a wall end). Neighbouring walls join it."""
+    hx, hy, ex, ey = op["chord"]
+    near = _locate(hx, hy, walls, tol=DOOR_HINGE_TOL)
+    thick = walls[near[0]][4] if near else 0.15
+    return [hx, hy, ex, ey, thick]
+
+
+def _door_from_arc(arc, walls):
+    """arc = (cx, cy, r, sweep, sx, sy, ex, ey) in metres -> opening or None."""
+    cx, cy, r, sweep = arc[0], arc[1], arc[2], arc[3]
+    if not (80.0 <= sweep <= 100.0 and 0.5 <= r <= 1.3):
+        return None
+    hinge = _locate(cx, cy, walls, tol=DOOR_HINGE_TOL)
+    if hinge is None:
+        # No wall at the hinge (the wall there was not detected). A quarter swing with a leaf line
+        # is still a door: the leaf hint says which end is the open one.
+        if walls and len(arc) > 8 and arc[8] in (0, 1):   # (no walls at all: nothing to hang a door on)
+            ex, ey = (arc[4], arc[5]), (arc[6], arc[7])
+            ex, ey = (ex, ey)[1 - arc[8]]
+            return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r, "chord": (cx, cy, ex, ey)}
+        return None
+    # Which arc end lies along the hinge's wall? That's the closed-door position.
+    ends = [(arc[4], arc[5]), (arc[6], arc[7])]
+    # An open door's leaf often lies along a wall; that chord is covered by solid wall, so it
+    # cannot be the doorway. The other end is the closed position, even if the wall there
+    # runs perpendicular (a door at a corner).
+    if len(arc) > 8 and arc[8] in (0, 1):             # leaf lines mark the open end; the other is the doorway
+        (ex, ey) = ends[1 - arc[8]]
+        return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r, "chord": (cx, cy, ex, ey)}
+    covered = [_chord_covered(cx, cy, ex, ey, walls) for ex, ey in ends]
+    if covered[0] != covered[1]:
+        (ex, ey) = ends[1] if covered[0] else ends[0]
+        return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r, "chord": (cx, cy, ex, ey)}
+    best = None
+    for ex, ey in ends:
+        loc = _locate(ex, ey, walls)
+        if loc and _same_wall_line(walls[loc[0]], walls[hinge[0]]) and (best is None or loc[2] < best[1][2]):
+            best = ((ex, ey), loc)
+    if best is None:
+        # Door at a wall's end or corner: its closed end lands on a perpendicular wall
+        # or on nothing. Still a door when one end of the swing runs along the hinge's wall.
+        _, ux, uy, _, _ = _frame(walls[hinge[0]])
+        along = [((ex - cx) * ux + (ey - cy) * uy) / max(1e-9, math.hypot(ex - cx, ey - cy)) for ex, ey in ends]
+        k = max(range(2), key=lambda i: abs(along[i]))
+        if abs(along[k]) < 0.9:
+            return None
+        best = (ends[k], None)
+    (ex, ey), _ = best
+    return {"type": "door", "x": (cx + ex) / 2.0, "y": (cy + ey) / 2.0, "width": r, "chord": (cx, cy, ex, ey)}
+
+
+def _extent_on_wall(points, wall):
+    L, ux, uy, nx, ny = _frame(wall)
+    ts = [(x - wall[0]) * ux + (y - wall[1]) * uy for x, y in points]
+    return min(ts), max(ts)
+
+
+def _group_segments(segs, link=0.05):
+    """Connected groups of short segments (a window symbol is 2–4 parallel lines)."""
+    parent = list(range(len(segs)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    boxes = [(min(s[0], s[2]) - link, min(s[1], s[3]) - link, max(s[0], s[2]) + link, max(s[1], s[3]) + link)
+             for s in segs]
+    order = sorted(range(len(segs)), key=lambda i: boxes[i][0])
+    for n, i in enumerate(order):
+        for j in order[n + 1:]:
+            if boxes[j][0] > boxes[i][2]:
+                break
+            if boxes[j][1] <= boxes[i][3] and boxes[i][1] <= boxes[j][3]:
+                parent[root(i)] = root(j)
+    groups = {}
+    for i in range(len(segs)):
+        groups.setdefault(root(i), []).append(segs[i])
+    return list(groups.values())
+
+
+def _window_from_points(points, walls):
+    cx = sum(p[0] for p in points) / len(points)
+    cy = sum(p[1] for p in points) / len(points)
+    loc = _locate(cx, cy, walls)
+    if loc is None:
+        return None
+    lo, hi = _extent_on_wall(points, walls[loc[0]])
+    width = hi - lo
+    if not 0.3 <= width <= 4.0:
+        return None
+    L, ux, uy, _, _ = _frame(walls[loc[0]])
+    w = walls[loc[0]]
+    mid = (lo + hi) / 2.0
+    return {"type": "window", "x": w[0] + ux * mid, "y": w[1] + uy * mid, "width": width}
+
+
+def _strip_window_wall(points, walls, min_len=1.0):
+    """A long thin glazing strip (>= min_len) with no detected wall under it: the window plus the
+    wall it implies (thin partition / glazed edge), centred on the strip."""
+    if not _is_thin_strip(points):
+        return None
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    horizontal = (x1 - x0) >= (y1 - y0)
+    length = (x1 - x0) if horizontal else (y1 - y0)
+    if length < min_len:
+        return None
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    if _locate(cx, cy, walls, tol=0.3) is not None:
+        return None                      # a wall is there: the normal path handles it
+    t = max(0.1, min(x1 - x0, y1 - y0))
+    wall = [x0, cy, x1, cy, t] if horizontal else [cx, y0, cx, y1, t]
+    return {"type": "window", "x": cx, "y": cy, "width": length, "strip_wall": wall}
+
+
+def _is_thin_strip(points):
+    """Block extent at least 0.5 m long and under 0.3 m across (a window strip, not a door)."""
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    a, b = sorted((max(xs) - min(xs), max(ys) - min(ys)))
+    return b >= 0.5 and a <= 0.30 and b >= 3.0 * a
+
+
+def find_openings(walls, door_arcs, door_blocks, window_blocks, window_segs):
+    """walls: [(x1,y1,x2,y2,t)] m. door_arcs: loose arc tuples. door_blocks /
+    window_blocks: list of dicts {"arcs": [...], "points": [(x,y)...]} per block.
+    window_segs: loose window-layer segments. Returns (walls, openings)."""
+    found = []
+    for blk in door_blocks:
+        doors = [d for d in (_door_from_arc(a, walls) for a in blk["arcs"]) if d]
+        if doors:
+            found.extend(doors)
+        elif blk["points"]:
+            win = _window_from_points(blk["points"], walls) or _strip_window_wall(blk["points"], walls)
+            if win:
+                # No swing arc: a long thin strip on a door/window layer is a window
+                # (sliding glass panel), anything else keeps the old reading as a door.
+                win["type"] = "window" if _is_thin_strip(blk["points"]) else "door"
+                found.append(win)
+    for a in door_arcs:
+        d = _door_from_arc(a, walls)
+        if d:
+            found.append(d)
+    for blk in window_blocks:
+        if blk["points"]:
+            win = _window_from_points(blk["points"], walls)
+            if win:
+                found.append(win)
+    for g in _group_segments(window_segs):
+        pts = [p for s in g for p in ((s[0], s[1]), (s[2], s[3]))]
+        win = _window_from_points(pts, walls)
+        if win:
+            found.append(win)
+
+    walls = [list(w) for w in walls]
+    openings = []
+    for op in sorted(found, key=lambda o: o["type"] != "door"):  # doors win overlaps
+        if "strip_wall" in op:
+            walls.append(op.pop("strip_wall"))
+            openings.append(op)
+            continue
+        if op["type"] == "door" and "chord" in op and not _chord_on_wall(op["chord"], walls):
+            walls.append(_door_wall(op, walls))        # no wall across this doorway: add the door's own
+            placed = {"type": "door", "x": op["x"], "y": op["y"], "width": op["width"], "chord": op["chord"]}
+        else:
+            walls, placed = _place(op, walls)
+        if placed is None:
+            if op["type"] != "door":
+                continue
+            placed = dict(op)   # a door with no wall under it (wall stops short): keep it; attach_indices finds a wall
+        if any(_overlap(o, placed) for o in openings):
+            _merge_into(openings, placed)
+            continue
+        openings.append(placed)
+    return [tuple(w) for w in walls], openings
+
+
+def _place(op, walls):
+    """Attach opening to a wall line, joining the wall pieces around its gap."""
+    loc = _locate(op["x"], op["y"], walls)
+    if loc is None:
+        return walls, None
+    i = loc[0]
+    L, ux, uy, nx, ny = _frame(walls[i])
+    base = walls[i]
+    t_mid = loc[1]
+    a, b = t_mid - op["width"] / 2.0, t_mid + op["width"] / 2.0
+    lo, hi = min(0.0, a), max(L, b)
+    thick = base[4]
+    absorbed = {i}
+    for j, v in enumerate(walls):
+        if j == i:
+            continue
+        Lv, vx, vy, _, _ = _frame(v)
+        if abs(ux * vy - uy * vx) > math.sin(math.radians(2.0)):
+            continue
+        off = ((v[0] + v[2]) / 2.0 - base[0]) * nx + ((v[1] + v[3]) / 2.0 - base[1]) * ny
+        if abs(off) > (thick + v[4]) / 2.0 + 0.02:
+            continue
+        t1 = (v[0] - base[0]) * ux + (v[1] - base[1]) * uy
+        t2 = (v[2] - base[0]) * ux + (v[3] - base[1]) * uy
+        v_lo, v_hi = min(t1, t2), max(t1, t2)
+        if v_lo <= b + BRIDGE_GAP and v_hi >= a - BRIDGE_GAP:
+            lo, hi = min(lo, v_lo), max(hi, v_hi)
+            thick = max(thick, v[4])
+            absorbed.add(j)
+    joined = [base[0] + ux * lo, base[1] + uy * lo, base[0] + ux * hi, base[1] + uy * hi, thick]
+    walls = [w for j, w in enumerate(walls) if j not in absorbed] + [joined]
+    t = t_mid - lo
+    # Wall indices shift as pieces are joined, so openings keep coordinates only;
+    # attach_indices() links them to their final wall.
+    return walls, {"type": op["type"], "x": joined[0] + ux * t, "y": joined[1] + uy * t,
+                   "width": op["width"], "chord": op.get("chord")}
+
+
+def _overlap(o, p):
+    """Two openings are the same (or a double door) only if they are close AND share a wall line:
+    parallel chords, nearly collinear. Two doors that merely stand near each other on different
+    walls are different doors and must not be merged into one floating marker."""
+    if math.hypot(o["x"] - p["x"], o["y"] - p["y"]) >= (o["width"] + p["width"]) / 2.0 + 0.05:
+        return False
+    a, b = o.get("chord"), p.get("chord")
+    if a is None or b is None:
+        return True
+    al, bl = math.hypot(a[2] - a[0], a[3] - a[1]), math.hypot(b[2] - b[0], b[3] - b[1])
+    if al < 1e-9 or bl < 1e-9:
+        return True
+    ux, uy = (a[2] - a[0]) / al, (a[3] - a[1]) / al
+    vx, vy = (b[2] - b[0]) / bl, (b[3] - b[1]) / bl
+    if abs(ux * vy - uy * vx) > math.sin(math.radians(15.0)):
+        return False
+    off = abs((p["x"] - o["x"]) * -uy + (p["y"] - o["y"]) * ux)
+    if off > 0.25:
+        return False
+    # Two leaves of a double door swing toward each other (hinge->doorway chords opposed). Chords
+    # pointing the same way, standing apart, are neighbouring single doors (stacked swings).
+    if ux * vx + uy * vy > 0 and math.hypot(o["x"] - p["x"], o["y"] - p["y"]) > 0.4 * min(o["width"], p["width"]):
+        return False
+    return True
+
+
+def _merge_into(openings, p):
+    for o in openings:
+        if _overlap(o, p):
+            if o["type"] == "door" and p["type"] == "door":  # double door: two leaves
+                o["x"], o["y"] = (o["x"] + p["x"]) / 2.0, (o["y"] + p["y"]) / 2.0
+                o["width"] = o["width"] + p["width"]
+            return
+
+
+def attach_indices(walls, openings):
+    """Final pass: point each opening at the wall that now carries it."""
+    out = []
+    for o in openings:
+        loc = _locate(o["x"], o["y"], [list(w) for w in walls])
+        if loc is not None:
+            out.append({**o, "wall_index": loc[0]})
+        elif o["type"] == "door":
+            # A door at the end of a wall that stops short (no wall carries it) is still a
+            # door: attach it to the nearest wall instead of dropping it.
+            near = min(((_dist_seg(o["x"], o["y"], w), i) for i, w in enumerate(walls)), default=None)
+            if near is not None and near[0] <= DOOR_ATTACH_MAX:
+                out.append({**o, "wall_index": near[1]})
+    return out
+
+
+def _dist_seg(px, py, w):
+    dx, dy = w[2] - w[0], w[3] - w[1]
+    l2 = dx * dx + dy * dy
+    u = max(0.0, min(1.0, ((px - w[0]) * dx + (py - w[1]) * dy) / l2)) if l2 else 0.0
+    return math.hypot(px - (w[0] + u * dx), py - (w[1] + u * dy))
