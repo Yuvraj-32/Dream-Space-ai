@@ -24,7 +24,8 @@ _NAME_RULES = [
                    "roof", "plumb", "pipe", "manhole", "elec", "defpoint", "vport", "viewport",
                    "gulv", "tile", "sanit", "struct", "beam", "footing", "column", "site",
                    "contour", "parking", "note", "comment", "logo", "cota", "cotas",
-                   "pilar", "bound", "plinth", "textur", "nota", "tarjeta", "coord", "equip"),
+                   "pilar", "bound", "plinth", "textur", "nota", "tarjeta", "coord", "equip",
+                   "sofa", "chair", "couch"),
         "exact": ("fur", "pat", "rcc", "col", "dims", "ele"),
     }),
     ("wall", {"prefix": ("wall", "mur", "pared", "brick", "partit", "masonr", "blockwork"), "exact": ()}),
@@ -37,6 +38,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 WALL_MIN_M, WALL_MAX_M = 0.075, 0.45
 AXIS_TOL_DEG = 3.0
+NAMED_WALL_MIN_PAIR = 0.15  # same bar _suggest_role uses for "name + parallel wall lines"
 MAX_PAIR_SEGMENTS = 40_000
 
 
@@ -155,8 +157,11 @@ def analyze_layers(doc, records, metres_per_unit):
         })
     # If the drawing names a wall layer, trust that over look-alike geometry
     # elsewhere: the gazebo sample's layer "0" is 2,600 lines of stone hatching
-    # drawn inside the walls — very "parallel", but not walls.
-    named = [l["name"] for l in layers if l["suggested_role"] == "wall" and l["reason"].startswith("name")]
+    # drawn inside the walls — very "parallel", but not walls. Only a named layer
+    # that really holds wall pairs counts: NITIN BHAI's "Wall" has none, and its
+    # real walls are on "0" / "0. GF".
+    named = [l["name"] for l in layers if l["suggested_role"] == "wall" and l["reason"].startswith("name")
+             and l["pair_frac"] >= NAMED_WALL_MIN_PAIR]
     if named:
         for l in layers:
             if l["suggested_role"] == "wall" and not l["reason"].startswith("name"):
@@ -174,7 +179,7 @@ def _suggest_role(name, n, kinds, axis_frac, pair_frac, total_m, door_arcs, n_te
     wall_geom = pair_frac >= 0.3 and axis_frac >= 0.55 and total_m >= 10.0
 
     if name_role == "wall":
-        if wall_geom or pair_frac >= 0.15:
+        if wall_geom or pair_frac >= NAMED_WALL_MIN_PAIR:
             return "wall", 0.95, f"name '{token}' + parallel wall lines"
         return "wall", 0.7, f"name '{token}'"
     if name_role in ("door", "window"):
