@@ -1,0 +1,275 @@
+{
+ "plan": "nitin_sf",
+ "file": "01-06-2026 NITIN BHAI COLUMN POSITION F.A.O..dwg",
+ "plan_bbox": [
+  10645.649464279373,
+  -2761.635228276806,
+  10918.64946428015,
+  -2224.635228276802
+ ],
+ "units": null,
+ "status": "reviewed",
+ "notes": [
+  "Reviewed: exterior side walls are one 0.23 m wall each. Added missed wall: bottom of the open-to-sky shaft (y~12.6). d0 opens through the horizontal wall y=8.41 (x 0.23-1.14), not the exterior wall; d2 opens through the stair wall x=1.57 (y 7.23-8.29), not the horizontal one; added the 2.45 m sliding door bedroom->balcony. Labels A.TOILET 12-0x4-3 and OPEN TARACCE 21-3x13-4 fall outside this cluster, added by hand. Policy: balcony parapets drawn as double lines are walls."
+ ],
+ "walls": [
+  {
+   "id": "w2",
+   "a": [
+    0.173,
+    13.584
+   ],
+   "b": [
+    6.765,
+    13.584
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w3",
+   "a": [
+    6.765,
+    1.737
+   ],
+   "b": [
+    0.173,
+    1.737
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w4",
+   "a": [
+    0.267,
+    0.04
+   ],
+   "b": [
+    6.132,
+    0.04
+   ],
+   "t": 0.076
+  },
+  {
+   "id": "w5",
+   "a": [
+    1.565,
+    7.227
+   ],
+   "b": [
+    1.565,
+    1.737
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w6",
+   "a": [
+    5.944,
+    1.846
+   ],
+   "b": [
+    3.504,
+    1.846
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w7",
+   "a": [
+    0.267,
+    1.737
+   ],
+   "b": [
+    0.267,
+    0.04
+   ],
+   "t": 0.076
+  },
+  {
+   "id": "w8",
+   "a": [
+    6.132,
+    1.737
+   ],
+   "b": [
+    6.132,
+    0.04
+   ],
+   "t": 0.076
+  },
+  {
+   "id": "w9",
+   "a": [
+    2.949,
+    8.407
+   ],
+   "b": [
+    2.949,
+    6.945
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w10",
+   "a": [
+    2.347,
+    12.599
+   ],
+   "b": [
+    2.347,
+    13.584
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w12",
+   "a": [
+    2.949,
+    6.945
+   ],
+   "b": [
+    6.765,
+    6.945
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w13",
+   "a": [
+    1.143,
+    8.407
+   ],
+   "b": [
+    6.765,
+    8.407
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w0",
+   "a": [
+    0.114,
+    0.228
+   ],
+   "b": [
+    0.114,
+    13.639
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w1",
+   "a": [
+    6.82,
+    0.228
+   ],
+   "b": [
+    6.82,
+    13.639
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w11",
+   "a": [
+    2.347,
+    12.6
+   ],
+   "b": [
+    6.765,
+    12.6
+   ],
+   "t": 0.13
+  }
+ ],
+ "doors": [
+  {
+   "id": "d1",
+   "at": [
+    4.091,
+    6.945
+   ],
+   "w": 0.796
+  },
+  {
+   "id": "d0",
+   "at": [
+    0.68,
+    8.407
+   ],
+   "w": 0.85
+  },
+  {
+   "id": "d2",
+   "at": [
+    1.565,
+    7.76
+   ],
+   "w": 0.97
+  },
+  {
+   "id": "d3",
+   "at": [
+    4.69,
+    1.737
+   ],
+   "w": 2.45
+  }
+ ],
+ "windows": [],
+ "rooms": [
+  {
+   "id": "r0",
+   "name": "BALCONY 19'-0\"X5'-0\"",
+   "type": "outdoor",
+   "at": [
+    3.743,
+    0.951
+   ],
+   "dims_ft": [
+    19.0,
+    5.0
+   ]
+  },
+  {
+   "id": "r1",
+   "name": "BEDROOM 16'-6\"X16'-3\"",
+   "type": "bedroom",
+   "at": [
+    3.059,
+    3.78
+   ],
+   "dims_ft": [
+    16.5,
+    16.25
+   ]
+  },
+  {
+   "id": "r2",
+   "name": "A.TOILET 12-0 X 4-3 (label outside cluster)",
+   "type": "bath",
+   "at": [
+    4.8,
+    7.7
+   ],
+   "dims_ft": [
+    12.0,
+    4.25
+   ]
+  },
+  {
+   "id": "r3",
+   "name": "OPEN TARACCE 21-3 X 13-4 (label outside cluster)",
+   "type": "outdoor",
+   "at": [
+    3.5,
+    10.5
+   ],
+   "dims_ft": [
+    21.25,
+    13.333
+   ]
+  }
+ ],
+ "check": []
+}
