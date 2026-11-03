@@ -40,10 +40,15 @@ Note: the wall ground truth started from the detector's own output and was then
 corrected by eye, which flatters wall precision a little. Doors, windows and rooms were
 checked against independent evidence: swing arcs, glazing symbols and printed labels.
 
-## Results (10 plans: 76 doors, 62 windows, 79 labelled rooms; Nov 2026)
+## Results (10 plans: 76 doors, 62 windows, 79 labelled rooms)
 
-| engine   | doors P / R / F1   | windows P / R / F1 | walls P / R | rooms found / typed / merged |
-|----------|--------------------|--------------------|-------------|------------------------------|
-| vector   | 89.4 / 85.5 / 87.4 | 96.5 / 90.2 / 93.2 | 97.7 / 97.6 | 58 / 52 / 10                 |
-| ml       | 77.9 / 76.8 / 77.4 | 60.3 / 67.2 / 63.6 | 81.6 / 82.2 | 54 / 14 / 26                 |
-| pipeline | 97.0 / 94.2 / 95.6 | 96.5 / 90.2 / 93.2 | 97.7 / 97.6 | 58 / 52 / 10                 |
+| engine (date)            | doors P / R / F1   | windows P / R / F1 | walls P / R | rooms found / typed / merged |
+|--------------------------|--------------------|--------------------|-------------|------------------------------|
+| vector, Phase 1 start    | 89.4 / 85.5 / 87.4 | 96.5 / 90.2 / 93.2 | 97.7 / 97.6 | 58 / 52 / 10                 |
+| ml (image model alone)   | 77.9 / 76.8 / 77.4 | 60.3 / 67.2 / 63.6 | 81.6 / 82.2 | 54 / 14 / 26                 |
+| pipeline, Phase 1        | 97.0 / 94.2 / 95.6 | 96.5 / 90.2 / 93.2 | 97.7 / 97.6 | 58 / 52 / 10                 |
+| vector = pipeline, now   | 98.5 / 95.7 / 97.1 | 96.6 / 93.4 / 95.0 | 99.6 / 98.2 | 62 / 56 / 10                 |
+
+"now" includes the wall-thickness, open-leaf and door/window merge fixes (see CAD_INPUT_PLAN.md). The
+rules alone now get every arc door the referee used to correct, so the referee
+changes nothing on this set. It stays in place as a safety net for unseen drawings.

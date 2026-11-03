@@ -10,7 +10,8 @@
  "units": null,
  "status": "reviewed",
  "notes": [
-  "Reviewed: exterior side walls are one 0.23 m wall each. Added missed wall: bottom of the open-to-sky shaft (y~12.6). d0 opens through the horizontal wall y=8.41 (x 0.23-1.14), not the exterior wall; d2 opens through the stair wall x=1.57 (y 7.23-8.29), not the horizontal one; added the 2.45 m sliding door bedroom->balcony. Labels A.TOILET 12-0x4-3 and OPEN TARACCE 21-3x13-4 fall outside this cluster, added by hand. Policy: balcony parapets drawn as double lines are walls."
+  "Reviewed: exterior side walls are one 0.23 m wall each. Added missed wall: bottom of the open-to-sky shaft (y~12.6). d0 opens through the horizontal wall y=8.41 (x 0.23-1.14), not the exterior wall; d2 opens through the stair wall x=1.57 (y 7.23-8.29), not the horizontal one; added the 2.45 m sliding door bedroom->balcony. Labels A.TOILET 12-0x4-3 and OPEN TARACCE 21-3x13-4 fall outside this cluster, added by hand. Policy: balcony parapets drawn as double lines are walls.",
+  "Convention fix (walls run through their door openings): added the wall spans across the terrace doorway (y=8.407, x 0.23-1.14) and the landing doorway (x=1.565, y 7.23-8.29)."
  ],
  "walls": [
   {
@@ -180,6 +181,30 @@
     12.6
    ],
    "t": 0.13
+  },
+  {
+   "id": "w14",
+   "a": [
+    0.23,
+    8.407
+   ],
+   "b": [
+    1.143,
+    8.407
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w15",
+   "a": [
+    1.565,
+    7.227
+   ],
+   "b": [
+    1.565,
+    8.29
+   ],
+   "t": 0.229
   }
  ],
  "doors": [

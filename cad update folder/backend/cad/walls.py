@@ -103,7 +103,7 @@ def pair_faces(segs):
                     cand.append((off, lo, hi, j))
         all_cand.append(cand)
 
-    modes = _thickness_modes(all_cand)
+    modes = _thickness_modes(_on_main_axes(lines, all_cand))
     capped = _cap_finder(segs)
     # A pair whose ends are joined by short cap lines is a closed wall outline: a wall whatever its
     # thickness, even when that thickness is too rare to show up as a histogram mode.
@@ -165,6 +165,36 @@ def _partner_prefers_other(a, p0, p1, dist, i, b, b_cands):
         if k != i and abs(off) < dist - 0.01 and min(hi, c_hi) - max(lo, c_lo) >= 0.5 * (p1 - p0):
             return True
     return False
+
+
+def _on_main_axes(lines, all_cand, tol_deg=3.0, min_share=0.25):
+    """The pair candidates of lines that run along the drawing's grid. Walls
+    overwhelmingly do; a rug's zig-zag or a diagonal hatch on the wall layer doesn't, and
+    on NITIN BHAI's first floor its hundreds of pairs buried the real 0.11-0.23 m walls in
+    the thickness histogram. The grid is the drawing's own x/y axes when they carry at
+    least `min_share` of the line length (plans are drawn square to them, even when a
+    pattern outweighs the walls), else its dominant direction (a plan drawn rotated).
+    Falls back to every candidate when neither is clear."""
+    total = sum(l.L for l in lines)
+    if not total:
+        return all_cand
+
+    def on(dom):
+        return [abs((l.theta - dom + 45.0) % 90.0 - 45.0) <= tol_deg for l in lines]
+
+    def share(flags):
+        return sum(l.L for l, ok in zip(lines, flags) if ok) / total
+
+    flags = on(0.0)
+    if share(flags) < min_share:
+        weight = {}
+        for l in lines:
+            k = int(round(l.theta)) % 90
+            weight[k] = weight.get(k, 0.0) + l.L
+        flags = on(max(weight, key=lambda k: sum(weight.get((k + d) % 90, 0.0) for d in (-1, 0, 1))))
+        if share(flags) < min_share:
+            return all_cand
+    return [cand if ok else [] for cand, ok in zip(all_cand, flags)]
 
 
 def _thickness_modes(all_cand, bin_m=0.01, window=2, min_share=0.08, min_len_m=2.0):

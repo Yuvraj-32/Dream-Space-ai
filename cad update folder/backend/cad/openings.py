@@ -74,13 +74,15 @@ def _same_wall_line(a, b):
     return off <= (a[4] + b[4]) / 4.0 + 0.05
 
 
-def _chord_covered(hx, hy, ex, ey, walls, frac=0.6):
-    """True if the chord hinge -> end mostly lies inside existing wall material."""
+def _chord_covered(hx, hy, ex, ey, walls, frac=0.6, face_m=0.10):
+    """True if the chord hinge -> end mostly lies inside existing wall material, or flat
+    against its face: an open leaf rests on the wall, its line a few cm outside the face
+    (NITIN BHAI first floor: 5-7 cm, which a 5 cm allowance missed)."""
     n, hit = 10, 0
     for k in range(2, n + 1):                      # skip the first 20%: the hinge sits on a wall
         t = k / n
         px, py = hx + (ex - hx) * t, hy + (ey - hy) * t
-        if any(_dist_seg(px, py, w) <= w[4] / 2.0 + 0.05 for w in walls):
+        if any(_dist_seg(px, py, w) <= w[4] / 2.0 + face_m for w in walls):
             hit += 1
     return hit / (n - 1) >= frac
 
@@ -330,8 +332,16 @@ def _overlap(o, p):
     if math.hypot(o["x"] - p["x"], o["y"] - p["y"]) >= (o["width"] + p["width"]) / 2.0 + 0.05:
         return False
     a, b = o.get("chord"), p.get("chord")
-    if a is None or b is None:
+    if a is None and b is None:
         return True
+    if a is None or b is None:
+        # A door and a window: the same opening only if the window sits on the door's wall
+        # line (THREE BEDROOM: a 1.4 m double door "swallowed" the window 1.3 m below it).
+        c, q = (a, p) if a is not None else (b, o)
+        cl = math.hypot(c[2] - c[0], c[3] - c[1])
+        if cl < 1e-9:
+            return True
+        return abs((q["x"] - c[0]) * -(c[3] - c[1]) / cl + (q["y"] - c[1]) * (c[2] - c[0]) / cl) <= 0.25
     al, bl = math.hypot(a[2] - a[0], a[3] - a[1]), math.hypot(b[2] - b[0], b[3] - b[1])
     if al < 1e-9 or bl < 1e-9:
         return True
