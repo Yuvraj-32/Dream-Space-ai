@@ -1,0 +1,317 @@
+{
+ "plan": "nitin_gf",
+ "file": "01-06-2026 NITIN BHAI COLUMN POSITION F.A.O..dwg",
+ "plan_bbox": [
+  10005.574205597844,
+  -2752.6352282768044,
+  10278.574205598616,
+  -2224.635228276802
+ ],
+ "units": null,
+ "status": "reviewed",
+ "notes": [
+  "Reviewed from door-swing geometry: d0 was two separate bedroom doors (x~2.92 and 3.96 on y=7.43), merged and placed on the partition; d3 opens through the horizontal wall y=12.43 (x 3.57-4.32), not the vertical one; win0 on the stair wall is not a window (no window symbols on this floor). Exterior side walls are one 0.23 m wall each (detector split them in two). Single-line partition x=4.3 in the top band added. WASH (r3) is open to the stair run (no wall), so its label size is not checkable.",
+  "Convention fix (walls run through their door openings): added the wall spans across the two bedroom doorways (y=7.43, x 2.49-4.34) and the top doorway (y=12.43, x 3.42-4.32), missing because the old detector left those gaps."
+ ],
+ "walls": [
+  {
+   "id": "w4",
+   "a": [
+    0.171,
+    13.356
+   ],
+   "b": [
+    6.76,
+    13.356
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w5",
+   "a": [
+    1.504,
+    7.43
+   ],
+   "b": [
+    1.504,
+    0.117
+   ],
+   "t": 0.241
+  },
+  {
+   "id": "w6",
+   "a": [
+    6.76,
+    12.431
+   ],
+   "b": [
+    4.317,
+    12.431
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w7",
+   "a": [
+    4.34,
+    7.43
+   ],
+   "b": [
+    6.76,
+    7.43
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w8",
+   "a": [
+    2.491,
+    7.43
+   ],
+   "b": [
+    0.171,
+    7.43
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w9",
+   "a": [
+    0.171,
+    0.117
+   ],
+   "b": [
+    2.236,
+    0.117
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w10",
+   "a": [
+    2.344,
+    11.799
+   ],
+   "b": [
+    2.344,
+    13.356
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w11",
+   "a": [
+    1.813,
+    1.543
+   ],
+   "b": [
+    1.813,
+    0.117
+   ],
+   "t": 0.241
+  },
+  {
+   "id": "w12",
+   "a": [
+    2.344,
+    12.431
+   ],
+   "b": [
+    3.415,
+    12.431
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w13",
+   "a": [
+    0.171,
+    6.243
+   ],
+   "b": [
+    1.389,
+    6.243
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w14",
+   "a": [
+    2.229,
+    11.861
+   ],
+   "b": [
+    0.171,
+    11.861
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w15",
+   "a": [
+    3.415,
+    12.5
+   ],
+   "b": [
+    3.415,
+    7.368
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w0",
+   "a": [
+    0.114,
+    0.0
+   ],
+   "b": [
+    0.114,
+    13.409
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w1",
+   "a": [
+    6.818,
+    0.0
+   ],
+   "b": [
+    6.818,
+    13.409
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w2",
+   "a": [
+    4.3,
+    12.43
+   ],
+   "b": [
+    4.3,
+    13.36
+   ],
+   "t": 0.08
+  },
+  {
+   "id": "w3",
+   "a": [
+    2.491,
+    7.43
+   ],
+   "b": [
+    4.34,
+    7.43
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w16",
+   "a": [
+    3.415,
+    12.431
+   ],
+   "b": [
+    4.317,
+    12.431
+   ],
+   "t": 0.127
+  }
+ ],
+ "doors": [
+  {
+   "id": "d1",
+   "at": [
+    1.057,
+    6.243
+   ],
+   "w": 0.664
+  },
+  {
+   "id": "d2",
+   "at": [
+    1.897,
+    11.861
+   ],
+   "w": 0.664
+  },
+  {
+   "id": "d0",
+   "at": [
+    2.92,
+    7.43
+   ],
+   "w": 0.78
+  },
+  {
+   "id": "d3",
+   "at": [
+    3.96,
+    7.43
+   ],
+   "w": 0.77
+  },
+  {
+   "id": "d4",
+   "at": [
+    3.94,
+    12.43
+   ],
+   "w": 0.76
+  }
+ ],
+ "windows": [],
+ "rooms": [
+  {
+   "id": "r0",
+   "name": "BEDROOM 10'-3\"X16'-0\"",
+   "type": "bedroom",
+   "at": [
+    2.805,
+    8.542
+   ],
+   "dims_ft": [
+    10.25,
+    16.0
+   ]
+  },
+  {
+   "id": "r1",
+   "name": "BEDROOM 10'-7\"X16'-0\"",
+   "type": "bedroom",
+   "at": [
+    5.602,
+    8.516
+   ],
+   "dims_ft": [
+    10.583,
+    16.0
+   ]
+  },
+  {
+   "id": "r2",
+   "name": "PARKING 17'-3\"X22'-6\"",
+   "type": "garage",
+   "at": [
+    3.904,
+    3.224
+   ],
+   "dims_ft": [
+    17.25,
+    22.5
+   ]
+  },
+  {
+   "id": "r3",
+   "name": "WASH 4'-4\" X 5'-4\"",
+   "type": "bath",
+   "at": [
+    1.333,
+    5.318
+   ],
+   "dims_ft": null
+  }
+ ],
+ "check": []
+}

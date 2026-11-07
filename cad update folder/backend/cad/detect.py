@@ -13,6 +13,7 @@ import pickle
 import sys
 import time
 
+from . import ai_assist
 from .converter import CadError
 from .layers import ROLES
 from .loader import NAME_TO_M
@@ -151,24 +152,49 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
     walls, gap_windows = bridge_windows(walls, all_segs, [(o["x"], o["y"]) for o in openings])
     openings = openings + gap_windows
     walls, tidy_stats = tidy_walls(walls, openings)   # fixtures/stair blobs/stubs out, open corners closed
-    openings = attach_indices(walls, openings)
-    rooms = find_rooms(walls, texts, W_m, H_m)
-    name_stair_rooms(rooms, all_segs)
 
     ppm = TARGET_LONG_PX / (max(W_m, H_m) + 2 * MARGIN_M)
     img_w = int(math.ceil((W_m + 2 * MARGIN_M) * ppm))
     img_h = int(math.ceil((H_m + 2 * MARGIN_M) * ppm))
+    preview_name = _preview_name(cluster_id, roles, mpu, cluster["bbox"])
+    sdir = session_dir(cache_root, insp["session_id"])
+
+    # Image-AI door referee (ai_assist.py): settles which of each swing's two exact
+    # doorways is the real one where the rules and the model disagree.
+    ai_det, ai_stats = None, {"used": False}
+    if ai_assist.enabled():
+        _backend_on_path()
+        stem = os.path.join(sdir, "ai_" + preview_name[len("preview_"):-len(".png")])
+        if not os.path.isfile(stem + ".json"):
+            ai_assist.render_linework(records, members, x0, y1, ppm * mpu, MARGIN_M * ppm, img_w, img_h,
+                                      stem + ".png")
+        ai_det = ai_assist.image_ai(stem + ".png", stem + ".json")
+        if ai_det is not None:
+            ai_doors = [(o["x"] / ppm - MARGIN_M, H_m + MARGIN_M - o["y"] / ppm)
+                        for o in ai_det["openings"] if o["type"] == "door"]
+            openings, moved = ai_assist.referee_doors(openings, door_arcs, ai_doors)
+            ai_stats = {"used": True, "doors_moved": moved, "model_seconds": ai_det.get("seconds")}
+        else:
+            ai_stats = {"used": False, "reason": "image model not available"}
+
+    openings = attach_indices(walls, openings)
+    rooms = find_rooms(walls, texts, W_m, H_m)
+    name_stair_rooms(rooms, all_segs)
 
     def px(x, y):
         return (int(round((x + MARGIN_M) * ppm)), int(round((H_m + MARGIN_M - y) * ppm)))
 
-    preview_name = _preview_name(cluster_id, roles, mpu, cluster["bbox"])
-    preview_path = os.path.join(session_dir(cache_root, insp["session_id"]), preview_name)
+    preview_path = os.path.join(sdir, preview_name)
     if not os.path.isfile(preview_path):
         render_preview(records, members, roles, preview_path, img_w, img_h,
                        x0, y1, ppm * mpu, MARGIN_M * ppm, MARGIN_M * ppm)
 
     result = _to_schema(walls, openings, rooms, px, ppm, img_w, img_h)
+    if not rooms and ai_det is not None and len(ai_det["rooms"]) >= ai_assist.FALLBACK_MIN_ROOMS:
+        # Last resort: the rules found no rooms at all (unusual layers or drawing style);
+        # the image model's result is in this same pixel space, so it can stand in.
+        result = {k: ai_det[k] for k in ("image_size", "walls", "rooms", "openings", "door_arcs")}
+        ai_stats["fallback"] = True
     ft_per_px = 1.0 / (ppm * 0.3048)
     result["stats"] = {
         "engine": "cad_vector",
@@ -185,6 +211,7 @@ def detect_file(src_path, cache_root, cluster_id=None, layer_roles=None, units_n
         "units": {"name": units_name or insp["units"]["name"], "metres_per_unit": mpu},
         "scale_ft_per_px": round(ft_per_px, 6),
         "label_dim_check": _label_check(result["rooms"]),
+        "ai_assist": ai_stats,
         "seconds": round(time.time() - t_start, 2),
     }
     result["measurements"] = {
@@ -204,10 +231,15 @@ def _preview_name(cluster_id, roles, mpu, bbox):
     return f"preview_{cluster_id}_{hashlib.sha1(key).hexdigest()[:10]}.png"
 
 
-def _to_schema(walls, openings, rooms, px, ppm, img_w, img_h):
+def _backend_on_path():
+    """The image pipeline's modules (detector, ml_detector) live in backend/."""
     backend = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "backend")
     if backend not in sys.path:
         sys.path.insert(0, backend)
+
+
+def _to_schema(walls, openings, rooms, px, ppm, img_w, img_h):
+    _backend_on_path()
     from detector import _angle_deg, _classify_wall_types, _len
 
     lines = [(*px(w[0], w[1]), *px(w[2], w[3])) for w in walls]

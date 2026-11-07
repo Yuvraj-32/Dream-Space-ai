@@ -1,0 +1,320 @@
+{
+ "plan": "nitin_ff",
+ "file": "01-06-2026 NITIN BHAI COLUMN POSITION F.A.O..dwg",
+ "plan_bbox": [
+  10330.682434404576,
+  -2757.13522821336,
+  10603.68243440535,
+  -2224.635228276802
+ ],
+ "units": null,
+ "status": "reviewed",
+ "notes": [
+  "Reviewed: rug X pattern (w5,w7,w9-w15), stair railing (w6) and store-cabinet base (w19) are not walls; exterior side walls are one 0.23 m wall each. Added missed walls: bedroom bottom wall y=8.40 and the stub beside the stair top. d1 opens through the horizontal wall (x 0.23-1.14, y 12.13), not the exterior wall; d2 opens through the vertical wall x=2.76 (y 6.83-7.73), not the horizontal one; added the 2.45 m sliding door living->balcony. STORE is a built-in cabinet, not a room. Kitchen, living and pooja are one open zone (no walls between), so their label sizes are not checkable. Front parapet/pooja front lines left out as ambiguous.",
+  "Policy (same as nitin_sf): balcony parapet (y~0.05, x 2.86-6.82) and the pooja-area front wall (y~0.2, x 0.11-2.86) are walls."
+ ],
+ "walls": [
+  {
+   "id": "w2",
+   "a": [
+    0.172,
+    13.47
+   ],
+   "b": [
+    6.763,
+    13.47
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w3",
+   "a": [
+    2.454,
+    12.554
+   ],
+   "b": [
+    6.763,
+    12.554
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w4",
+   "a": [
+    6.763,
+    1.616
+   ],
+   "b": [
+    2.858,
+    1.616
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w8",
+   "a": [
+    6.763,
+    11.141
+   ],
+   "b": [
+    4.496,
+    11.141
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w16",
+   "a": [
+    2.858,
+    1.616
+   ],
+   "b": [
+    2.858,
+    0.118
+   ],
+   "t": 0.229
+  },
+  {
+   "id": "w17",
+   "a": [
+    2.454,
+    13.47
+   ],
+   "b": [
+    2.454,
+    12.127
+   ],
+   "t": 0.114
+  },
+  {
+   "id": "w18",
+   "a": [
+    2.454,
+    12.127
+   ],
+   "b": [
+    1.143,
+    12.127
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w20",
+   "a": [
+    2.757,
+    7.733
+   ],
+   "b": [
+    2.757,
+    8.346
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w21",
+   "a": [
+    3.518,
+    12.608
+   ],
+   "b": [
+    3.518,
+    8.478
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w23",
+   "a": [
+    3.58,
+    6.833
+   ],
+   "b": [
+    0.172,
+    6.833
+   ],
+   "t": 0.127
+  },
+  {
+   "id": "w0",
+   "a": [
+    0.114,
+    0.0
+   ],
+   "b": [
+    0.114,
+    13.524
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w1",
+   "a": [
+    6.82,
+    0.0
+   ],
+   "b": [
+    6.82,
+    13.524
+   ],
+   "t": 0.23
+  },
+  {
+   "id": "w5",
+   "a": [
+    0.115,
+    8.4
+   ],
+   "b": [
+    3.518,
+    8.4
+   ],
+   "t": 0.11
+  },
+  {
+   "id": "w6",
+   "a": [
+    1.58,
+    5.55
+   ],
+   "b": [
+    1.58,
+    6.833
+   ],
+   "t": 0.2
+  },
+  {
+   "id": "w7",
+   "a": [
+    2.858,
+    0.05
+   ],
+   "b": [
+    6.82,
+    0.05
+   ],
+   "t": 0.1
+  },
+  {
+   "id": "w9",
+   "a": [
+    0.115,
+    0.2
+   ],
+   "b": [
+    2.858,
+    0.2
+   ],
+   "t": 0.19
+  }
+ ],
+ "doors": [
+  {
+   "id": "d0",
+   "at": [
+    3.518,
+    8.882
+   ],
+   "w": 0.796
+  },
+  {
+   "id": "d1",
+   "at": [
+    0.68,
+    12.127
+   ],
+   "w": 0.82
+  },
+  {
+   "id": "d2",
+   "at": [
+    2.757,
+    7.28
+   ],
+   "w": 0.8
+  },
+  {
+   "id": "d3",
+   "at": [
+    4.72,
+    1.616
+   ],
+   "w": 2.45
+  }
+ ],
+ "windows": [],
+ "rooms": [
+  {
+   "id": "r0",
+   "name": "BEDROOM 10'-7\"X12'-0\"",
+   "type": "bedroom",
+   "at": [
+    0.394,
+    10.398
+   ],
+   "dims_ft": [
+    10.583,
+    12.0
+   ]
+  },
+  {
+   "id": "r1",
+   "name": "BALCONY 12'-3\"X5'-0\"",
+   "type": "outdoor",
+   "at": [
+    5.25,
+    0.463
+   ],
+   "dims_ft": [
+    12.25,
+    5.0
+   ]
+  },
+  {
+   "id": "r2",
+   "name": "KITCHEN 10'-3\"X14'-0\"",
+   "type": "kitchen",
+   "at": [
+    5.488,
+    8.983
+   ],
+   "dims_ft": null,
+   "zone": "hall"
+  },
+  {
+   "id": "r4",
+   "name": "LIVING-ROOM 16'-8\"X17'-0\"",
+   "type": "living_room",
+   "at": [
+    3.176,
+    3.941
+   ],
+   "dims_ft": null,
+   "zone": "hall"
+  },
+  {
+   "id": "r5",
+   "name": "POOJA",
+   "type": "pooja",
+   "at": [
+    1.064,
+    0.566
+   ],
+   "dims_ft": null,
+   "zone": "hall"
+  },
+  {
+   "id": "r6",
+   "name": "WASH 10'-3\"X4'-3\"",
+   "type": "bath",
+   "at": [
+    5.542,
+    12.042
+   ],
+   "dims_ft": [
+    10.25,
+    4.25
+   ]
+  }
+ ],
+ "check": []
+}
