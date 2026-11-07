@@ -38,11 +38,15 @@ def _load_state(src_path, cache_root):
     insp = inspect_file(src_path, cache_root)
     path = os.path.join(session_dir(cache_root, insp["session_id"]), "state.pkl")
     if os.path.isfile(path):
-        with open(path, "rb") as f:
-            state = pickle.load(f)
+        try:
+            with open(path, "rb") as f:
+                state = pickle.load(f)
+        except (OSError, EOFError, pickle.UnpicklingError, ValueError):
+            state = {}                     # damaged cache: rebuild it below
         if state.get("inspect_version") == INSPECT_VERSION:
             return insp, state
     insp = inspect_file(src_path, cache_root, use_cache=False)
+    path = os.path.join(session_dir(cache_root, insp["session_id"]), "state.pkl")
     with open(path, "rb") as f:
         return insp, pickle.load(f)
 

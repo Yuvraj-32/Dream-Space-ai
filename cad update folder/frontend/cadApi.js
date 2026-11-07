@@ -1,5 +1,6 @@
 // CAD (.dwg/.dxf) API helpers. Lives in "cad update folder" with the backend half.
-const API_BASE = 'http://localhost:8001'
+// Same backend address as the rest of the app (VITE_API_BASE when deployed).
+import { API_BASE } from '../../frontend/src/config'
 
 export const CAD_EXTS = ['.dwg', '.dxf']
 export const UNIT_OPTIONS = [

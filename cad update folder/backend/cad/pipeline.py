@@ -4,13 +4,15 @@ drawing clusters → thumbnails. (Wall generation lives in detect.py.)
 Cached per file content hash in `<cache_root>/<session_id>/`: inspect.json for
 the API, state.pkl (parsed records) so detect never re-reads the DXF.
 """
+import hashlib
 import json
 import os
 import pickle
+import tempfile
 import time
 
 from .clusters import find_clusters
-from .converter import ConversionFailed, ensure_dxf, file_session_id
+from .converter import CadError, ConversionFailed, ensure_dxf, file_session_id
 from .layers import analyze_layers
 from .loader import flatten, header_units, load_doc
 from .orphans import flatten_blocks, plan_blocks
@@ -40,7 +42,7 @@ def _progress(sdir, step, started):
 
 def read_progress(src_path, cache_root):
     """Latest inspect progress for an uploaded file, or {"step": 0, "message": "Waiting"}."""
-    path = os.path.join(session_dir(cache_root, file_session_id(src_path)), "progress.json")
+    path = os.path.join(session_dir(cache_root, cache_session_id(src_path, cache_root)), "progress.json")
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -52,14 +54,63 @@ def session_dir(cache_root, session_id):
     return os.path.join(cache_root, session_id)
 
 
+def _usable(sdir):
+    """A cache folder this process can use: absent, or every file in it readable and the
+    folder writable. Folders left by another Windows account can lock their files against
+    this one (Permission denied reading plan.dxf), so they are skipped, not crashed on."""
+    if not os.path.isdir(sdir):
+        return True
+    try:
+        for root, _, files in os.walk(sdir):
+            for name in files:
+                with open(os.path.join(root, name), "rb") as f:
+                    f.read(1)
+        probe = os.path.join(sdir, f".probe-{os.getpid()}")
+        with open(probe, "w", encoding="utf-8"):
+            pass
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
+def cache_session_id(src_path, cache_root, tries=8):
+    """The file's content hash names its cache folder; if that folder is unusable, a fresh
+    sibling with another 16-hex id is used (same shape, so the routes accept it)."""
+    base = file_session_id(src_path)
+    for k in range(tries):
+        sid = base if k == 0 else hashlib.sha256(f"{base}:{k}".encode()).hexdigest()[:16]
+        if _usable(session_dir(cache_root, sid)):
+            return sid
+    raise CadError("The drawing's cache folders can't be read or written by this server; "
+                   "check the permissions of the uploads/cad_cache folder.")
+
+
+def write_atomic(path, data, mode="w"):
+    """Write a whole file or nothing: two requests at once must not interleave (a cached
+    inspect.json with stray bytes at its end made every later inspect of that file fail)."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, mode, **({"encoding": "utf-8"} if "b" not in mode else {})) as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def inspect_file(src_path, cache_root, use_cache=True):
-    sid = file_session_id(src_path)
+    sid = cache_session_id(src_path, cache_root)
     sdir = session_dir(cache_root, sid)
     os.makedirs(sdir, exist_ok=True)
     cache_json = os.path.join(sdir, "inspect.json")
     if use_cache and os.path.isfile(cache_json):
-        with open(cache_json, encoding="utf-8") as f:
-            cached = json.load(f)
+        try:
+            with open(cache_json, encoding="utf-8") as f:
+                cached = json.load(f)
+        except (OSError, ValueError):      # damaged cache: rebuild it below
+            cached = {}
         if cached.get("inspect_version") == INSPECT_VERSION:
             cached["cached"] = True
             return cached
@@ -138,10 +189,10 @@ def inspect_file(src_path, cache_root, use_cache=True):
     timings["thumbnails"] = round(time.time() - t, 2)
 
     # Keep the parsed drawing so /cad/detect doesn't re-read the DXF (up to ~10 s).
-    with open(os.path.join(sdir, "state.pkl"), "wb") as f:
-        pickle.dump({"inspect_version": INSPECT_VERSION, "records": records, "inserts": inserts,
-                     "members": {c["id"]: c["_records"] for c in clusters}}, f,
-                    protocol=pickle.HIGHEST_PROTOCOL)
+    write_atomic(os.path.join(sdir, "state.pkl"),
+                 pickle.dumps({"inspect_version": INSPECT_VERSION, "records": records, "inserts": inserts,
+                               "members": {c["id"]: c["_records"] for c in clusters}},
+                              protocol=pickle.HIGHEST_PROTOCOL), mode="wb")
 
     result = {
         "inspect_version": INSPECT_VERSION,
@@ -154,8 +205,7 @@ def inspect_file(src_path, cache_root, use_cache=True):
         "warnings": _warnings(source, flat_stats, clusters, layers, units),
         "cached": False,
     }
-    with open(cache_json, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False)
+    write_atomic(cache_json, json.dumps(result, ensure_ascii=False))
     _progress(sdir, len(STEPS) + 1, started)
     return result
 

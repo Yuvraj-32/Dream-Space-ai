@@ -55,8 +55,11 @@ def render_linework(records, members, x0, y1, scale, off, width, height, path):
 def image_ai(render, cache_json):
     """Run the image model on a render (cached); None if the model can't run here."""
     if os.path.isfile(cache_json):
-        with open(cache_json, encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(cache_json, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):      # damaged cache: run the model again
+            pass
     try:
         from ml_detector import detect_floor_plan_ml   # backend/ (already on sys.path via main.py)
         t = time.time()
