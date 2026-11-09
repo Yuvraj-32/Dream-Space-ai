@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Stage, Layer, Image as KonvaImage, Line, Circle, Rect, Group, Text as KonvaText, Label, Tag } from 'react-konva'
 import useImage from 'use-image'
+import Icon from './Icon'
 
 /* ─── constants ─────────────────────────────────────────────── */
 const GRID_SIZE          = 20
@@ -8,18 +9,18 @@ const SNAP_RADIUS        = 14
 const HANDLE_RADIUS      = 7
 // Main walls — bold, fully opaque structural walls
 const MAIN_WALL_STROKE   = 5
-const MAIN_WALL_COLOR    = '#6378ff'
+const MAIN_WALL_COLOR    = '#b8553a'
 // Partition walls — slim, slightly muted interior dividers
 const PART_WALL_STROKE   = 2
-const PART_WALL_COLOR    = '#8fa0cc'
+const PART_WALL_COLOR    = '#8c7f70'
 // Selected state
 const SEL_WALL_STROKE    = 6
 const WALL_STROKE        = 3   // fallback if wall_type unknown
-const WALL_COLOR         = '#6378ff'
-const SEL_COLOR          = '#3dd9c6'
+const WALL_COLOR         = '#b8553a'
+const SEL_COLOR          = '#2563eb'
 const HANDLE_COLOR       = '#ffffff'
-const DOOR_COLOR         = '#3dd9c6'
-const WIN_COLOR          = '#ffc16b'
+const DOOR_COLOR         = '#2f7d5b'
+const WIN_COLOR          = '#a8650f'
 
 /* ─── helpers ────────────────────────────────────────────────── */
 function snapToGrid(v) {
@@ -76,13 +77,13 @@ function GridLayer({ stageW, stageH, visible }) {
   for (let x = 0; x <= stageW; x += GRID_SIZE) {
     lines.push(
       <Line key={`gx-${x}`} points={[x, 0, x, stageH]}
-        stroke="rgba(99,120,255,0.12)" strokeWidth={0.5} listening={false} />
+        stroke="rgba(31,28,24,0.08)" strokeWidth={0.5} listening={false} />
     )
   }
   for (let y = 0; y <= stageH; y += GRID_SIZE) {
     lines.push(
       <Line key={`gy-${y}`} points={[0, y, stageW, y]}
-        stroke="rgba(99,120,255,0.12)" strokeWidth={0.5} listening={false} />
+        stroke="rgba(31,28,24,0.08)" strokeWidth={0.5} listening={false} />
     )
   }
   return <>{lines}</>
@@ -240,6 +241,24 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
     }))
   }
 
+  /* ── drag a whole wall ────────────────────────────────────── */
+  function onWallDrag(wallId, e) {
+    if (confirmed) return
+    const node = e.target
+    let dx = node.x(), dy = node.y()
+    node.position({ x: 0, y: 0 })       // the line's points carry the move, not the node
+    if (!dx && !dy) return
+    setWalls(ws => ws.map(w => {
+      if (w.id !== wallId) return w
+      let nx1 = w.x1 + dx, ny1 = w.y1 + dy
+      if (snapGrid) {                    // snap the wall's start; the end follows by the same offset
+        const sx = snapToGrid(nx1) - nx1, sy = snapToGrid(ny1) - ny1
+        nx1 += sx; ny1 += sy; dx += sx; dy += sy
+      }
+      return { ...w, x1: nx1, y1: ny1, x2: w.x2 + dx, y2: w.y2 + dy }
+    }))
+  }
+
   /* ── delete selected ─────────────────────────────────────── */
   function deleteSelected() {
     if (selectedId) { setWalls(ws => ws.filter(w => w.id !== selectedId)); setSelectedId(null) }
@@ -295,7 +314,7 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
 
   /* ── render ──────────────────────────────────────────────── */
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-deep)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--bg-deep)' }}>
 
       {/* Toolbar */}
       <div className="editor-toolbar">
@@ -306,7 +325,7 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
             onClick={() => { setTool('select'); setDrawState(null) }}
             title="Select / Move (Esc)"
           >
-            ↖ Select
+            <Icon name="cursor" size={14} /> Select
           </button>
           <button
             id="tool-draw"
@@ -315,7 +334,7 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
             disabled={confirmed}
             title="Draw Wall (click two points)"
           >
-            📐 Draw Wall
+            <Icon name="pen" size={14} /> Draw wall
           </button>
           <button
             id="tool-delete"
@@ -324,32 +343,46 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
             disabled={!selectedId || confirmed}
             title="Delete selected wall (Del)"
           >
-            🗑 Delete
+            <Icon name="trash" size={14} /> Delete
           </button>
         </div>
 
         <div className="toolbar-group">
           <label className="snap-toggle">
             <input type="checkbox" checked={snapGrid} onChange={e => setSnapGrid(e.target.checked)} />
-            <span>Snap to Grid</span>
+            <span>Snap to grid</span>
           </label>
           <label className="snap-toggle" title="Show wall length labels">
             <input type="checkbox" checked={showDims} onChange={e => setShowDims(e.target.checked)} />
             <span>Dimensions{scaleFtPerPx ? ' (ft)' : ''}</span>
           </label>
           <div className="wall-count-badge">
-            🧱 {walls.length} walls
+            <Icon name="wall" size={13} /> {walls.length} walls
           </div>
         </div>
 
+        <div className="toolbar-group">
+        {confirmed && (
+          <button
+            id="btn-edit-layout"
+            className="tool-btn"
+            onClick={() => setConfirmed(false)}
+            title="Unlock the layout to change walls, then confirm again"
+          >
+            <Icon name="edit" size={14} /> Edit layout
+          </button>
+        )}
         <button
           id="btn-confirm-layout"
           className={`confirm-btn ${confirmed ? 'done' : ''}`}
           onClick={handleConfirm}
           disabled={confirmed || walls.length === 0}
         >
-          {confirmed ? '✅ Layout Confirmed' : '✔ Confirm Layout →'}
+          {confirmed
+            ? <><Icon name="check" size={15} strokeWidth={2.25} /> Layout confirmed</>
+            : <>Confirm layout <Icon name="arrowRight" size={15} /></>}
         </button>
+        </div>
       </div>
 
       {/* Konva Stage */}
@@ -374,7 +407,7 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
                 key={op.id}
                 x={op.x} y={op.y}
                 radius={14}
-                fill={op.type === 'door' ? 'rgba(61,217,198,0.2)' : 'rgba(255,193,107,0.2)'}
+                fill={op.type === 'door' ? 'rgba(47,125,91,0.15)' : 'rgba(168,101,15,0.15)'}
                 stroke={op.type === 'door' ? DOOR_COLOR : WIN_COLOR}
                 strokeWidth={2}
                 listening={false}
@@ -391,19 +424,24 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
               const baseWidth  = isSel ? SEL_WALL_STROKE
                                : isMain ? MAIN_WALL_STROKE
                                : PART_WALL_STROKE
-              const shadowBlur = isSel ? 12 : isMain ? 5 : 2
+              const shadowBlur = isSel ? 6 : 0
               const opacity    = isMain ? 1.0 : 0.72
 
               return (
                 <Group key={wall.id}>
-                  {/* Hit area (wider, invisible) */}
+                  {/* Hit area (wider, invisible). A selected wall can be dragged to move it whole. */}
                   <Line
                     points={[wall.x1, wall.y1, wall.x2, wall.y2]}
                     stroke="transparent"
-                    strokeWidth={18}
+                    strokeWidth={22}
                     lineCap="round"
-                    onClick={() => !confirmed && setSelectedId(wall.id)}
+                    draggable={isSel && !confirmed && tool === 'select'}
+                    onMouseDown={() => !confirmed && tool === 'select' && setSelectedId(wall.id)}
                     onTap={() => !confirmed && setSelectedId(wall.id)}
+                    onMouseEnter={e => { if (!confirmed && tool === 'select') e.target.getStage().container().style.cursor = isSel ? 'move' : 'pointer' }}
+                    onMouseLeave={e => { e.target.getStage().container().style.cursor = '' }}
+                    onDragMove={e => onWallDrag(wall.id, e)}
+                    onDragEnd={e => onWallDrag(wall.id, e)}
                   />
                   {/* Visible wall line */}
                   <Line
@@ -425,7 +463,7 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
                     return (
                       <Label x={mid.x} y={mid.y} listening={false}>
                         <Tag
-                          fill={isSel ? SEL_COLOR : 'rgba(18,22,38,0.82)'}
+                          fill={isSel ? SEL_COLOR : 'rgba(255,255,255,0.94)'}
                           cornerRadius={3}
                           pointerDirection="down"
                           pointerWidth={0}
@@ -435,38 +473,13 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
                           text={wallLabel(wall)}
                           fontSize={11}
                           fontStyle={isMain ? 'bold' : 'normal'}
-                          fill={isSel ? '#0c1020' : '#e6eaff'}
+                          fill={isSel ? '#ffffff' : '#1f1c18'}
                           fontFamily="Inter, sans-serif"
                           padding={3}
                         />
                       </Label>
                     )
                   })()}
-                  {/* Drag handles (only when selected or hovered) */}
-                  {isSel && !confirmed && (
-                    <>
-                      <Circle
-                        x={wall.x1} y={wall.y1}
-                        radius={HANDLE_RADIUS}
-                        fill={HANDLE_COLOR}
-                        stroke={SEL_COLOR}
-                        strokeWidth={2}
-                        draggable
-                        onDragMove={e => onEndpointDrag(wall.id, 'start', e)}
-                        dragBoundFunc={pos => pos}
-                      />
-                      <Circle
-                        x={wall.x2} y={wall.y2}
-                        radius={HANDLE_RADIUS}
-                        fill={HANDLE_COLOR}
-                        stroke={SEL_COLOR}
-                        strokeWidth={2}
-                        draggable
-                        onDragMove={e => onEndpointDrag(wall.id, 'end', e)}
-                        dragBoundFunc={pos => pos}
-                      />
-                    </>
-                  )}
                   {/* Unselected endpoint dots */}
                   {!isSel && (
                     <>
@@ -477,6 +490,41 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
                 </Group>
               )
             })}
+
+            {/* Drag handles for the selected wall, drawn above every wall so a
+                handle at a shared corner isn't hidden by the neighbouring wall. */}
+            {(() => {
+              const wall = walls.find(w => w.id === selectedId)
+              if (!wall || confirmed) return null
+              return (
+                <>
+                  <Circle
+                    x={wall.x1} y={wall.y1}
+                    radius={HANDLE_RADIUS}
+                    fill={HANDLE_COLOR}
+                    stroke={SEL_COLOR}
+                    strokeWidth={2}
+                    draggable
+                    onDragMove={e => onEndpointDrag(wall.id, 'start', e)}
+                    dragBoundFunc={pos => pos}
+                    onMouseEnter={e => { e.target.getStage().container().style.cursor = 'grab' }}
+                    onMouseLeave={e => { e.target.getStage().container().style.cursor = '' }}
+                  />
+                  <Circle
+                    x={wall.x2} y={wall.y2}
+                    radius={HANDLE_RADIUS}
+                    fill={HANDLE_COLOR}
+                    stroke={SEL_COLOR}
+                    strokeWidth={2}
+                    draggable
+                    onDragMove={e => onEndpointDrag(wall.id, 'end', e)}
+                    dragBoundFunc={pos => pos}
+                    onMouseEnter={e => { e.target.getStage().container().style.cursor = 'grab' }}
+                    onMouseLeave={e => { e.target.getStage().container().style.cursor = '' }}
+                  />
+                </>
+              )
+            })()}
 
             {/* Live preview line while drawing */}
             {tool === 'wall' && drawState && (
@@ -496,15 +544,16 @@ export default function FloorPlanEditor({ imageUrl, detection, onConfirm }) {
 
       {/* Hint bar */}
       <div className="editor-hint">
+        <Icon name={confirmed ? 'checkCircle' : 'info'} size={14} />
         {confirmed
-          ? '✅ Layout locked — ready for Phase 3: 3D Generation'
+          ? 'Layout confirmed and sent to 3D. To change walls, click Edit layout, then confirm again.'
           : tool === 'wall' && !drawState
-          ? '📐 Click to place the first wall endpoint'
+          ? 'Click to place the first end of the new wall.'
           : tool === 'wall' && drawState
-          ? '📐 Click to place the second endpoint and finish the wall'
+          ? 'Click to place the second end and finish the wall.'
           : selectedId
-          ? '↖ Drag the white handles to adjust wall endpoints · Press Delete to remove · Click elsewhere to deselect'
-          : '↖ Click a wall to select it · Use Draw Wall to add new walls · Confirm when ready'}
+          ? 'Drag the wall to move it, or drag its round handles to change its ends. Press Delete to remove it.'
+          : 'Click a wall to select it. Use Draw wall to add missing walls, then confirm the layout.'}
       </div>
     </div>
   )

@@ -57,7 +57,7 @@ export default function MaterialSelector({ selectedSurface, currentCustomization
     : isRoom
     ? `Customize Floor · ${roomLabel || 'This Room'}`
     : `Customize Wall · ${sideLabel}`
-  const defaultColor = isFloorLike ? '#141824' : '#f0f2f5'
+  const defaultColor = isFloorLike ? '#cdc3b5' : '#f0f2f5'
 
   const activeMaterialId =
     currentCustomization?.materialId || (isFloorLike ? DEFAULT_FLOOR_MATERIAL_ID : DEFAULT_MATERIAL_ID)

@@ -1,17 +1,23 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import axios from 'axios'
 import { API_BASE } from '../config'
 import { isCadFile } from '@cad/cadApi'
+import Icon from './Icon'
 
 const PIPELINE_STEPS = [
-  { id: 0, label: 'Upload floor plan' },
-  { id: 1, label: 'Wall detection (Phase 1)' },
-  { id: 2, label: '2D editor confirmation (Phase 2)' },
-  { id: 3, label: '3D model generation (Phase 3)' },
-  { id: 4, label: 'FPP walkthrough (Phase 4)' },
+  { id: 0, label: 'Upload plan',      hint: 'Image or AutoCAD drawing' },
+  { id: 1, label: 'Detect layout',    hint: 'Walls, rooms, doors, windows' },
+  { id: 2, label: 'Review in 2D',     hint: 'Fix anything that is off' },
+  { id: 3, label: 'Explore in 3D',    hint: 'Materials and walkthrough' },
 ]
 
-export default function UploadPanel({ onUploadSuccess, currentStep, detectionError }) {
+export const ACCEPT = 'image/jpeg,image/png,image/bmp,image/tiff,image/webp,.dwg,.dxf'
+
+/**
+ * Sidebar upload + progress panel. The parent can also hand it a file (e.g. one
+ * dropped on the welcome screen) through the ref: uploadRef.current.handleFile(file).
+ */
+const UploadPanel = forwardRef(function UploadPanel({ onUploadSuccess, currentStep, detectionError }, ref) {
   const [dragging, setDragging]   = useState(false)
   const [preview,  setPreview]    = useState(null)
   const [isCad,    setIsCad]      = useState(false)
@@ -22,6 +28,11 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
   const fileInputRef = useRef(null)
 
   const step = currentStep !== undefined ? currentStep : localStep
+
+  useImperativeHandle(ref, () => ({
+    handleFile,
+    openPicker: () => fileInputRef.current?.click(),
+  }))
 
   useEffect(() => {
     if (detectionError) {
@@ -54,11 +65,7 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
       const { data } = await axios.post(`${API_BASE}/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      setStatus({
-        type:   'success',
-        title:  data.kind === 'cad' ? 'Uploaded! Reading CAD drawing…' : 'Uploaded! Running detection…',
-        detail: `${data.filename} · ${(data.size_bytes / 1024).toFixed(1)} KB`,
-      })
+      setStatus(null)
       setLocalStep(1)
       // Pass both server response AND the local blob URL to parent
       onUploadSuccess?.(data, objectUrl)
@@ -77,63 +84,80 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
     setDragging(false)
     handleFile(e.dataTransfer.files[0])
   }
-  function onInputChange(e) { handleFile(e.target.files[0]) }
+  function onInputChange(e) {
+    handleFile(e.target.files[0])
+    e.target.value = ''   // let the same file be picked again
+  }
 
   return (
     <>
       <div className="sidebar-section">
-        <div className="section-label">Floor Plan</div>
+        <div className="section-label">Floor plan</div>
 
-        <div
-          id="upload-zone"
-          className={`upload-zone ${dragging ? 'dragging' : ''} ${preview ? 'has-file' : ''} ${loading ? 'loading' : ''}`}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          onClick={() => !loading && fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}
-          aria-label="Upload floor plan image"
-        >
-          {loading ? (
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '8px 0'
-            }}>
-              <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Uploading floor plan…</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Sending image to FastAPI server</div>
-            </div>
-          ) : (
-            <>
-              <span className="upload-icon">{preview ? '🗺️' : '⬆️'}</span>
-              <div className="upload-title">
-                {preview ? 'Change floor plan' : 'Drop your floor plan here'}
-              </div>
-              <div className="upload-sub">JPEG, PNG, BMP, TIFF, WebP · AutoCAD DWG, DXF</div>
-              <button className="upload-btn" type="button" disabled={loading}>
-                📂 Browse file
+        {preview && !loading ? (
+          <div className="preview-container">
+            {isCad
+              ? <div className="preview-cad"><Icon name="drawing" size={30} strokeWidth={1.4} /></div>
+              : <img src={preview} alt="Floor plan preview" />}
+            <div className="preview-overlay">
+              <Icon name={isCad ? 'drawing' : 'file'} size={15} />
+              <span className="preview-filename" title={fileName}>{fileName}</span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Replace
               </button>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            id="upload-zone"
+            className={`upload-zone ${dragging ? 'dragging' : ''} ${loading ? 'loading' : ''}`}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onClick={() => !loading && fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}
+            aria-label="Upload floor plan"
+          >
+            {loading ? (
+              <div className="upload-loading">
+                <div className="spinner spinner-lg" />
+                <div className="upload-loading-title">Uploading…</div>
+                <div className="upload-loading-sub">{fileName}</div>
+              </div>
+            ) : (
+              <>
+                <span className="upload-icon"><Icon name="upload" size={20} /></span>
+                <div className="upload-title">Drop a floor plan here</div>
+                <div className="upload-sub">JPG, PNG, WebP, TIFF or AutoCAD DWG/DXF</div>
+                <button className="upload-btn" type="button">Choose file</button>
+              </>
+            )}
+          </div>
+        )}
 
         <input
           ref={fileInputRef}
           className="file-input"
           type="file"
           id="file-input"
-          accept="image/jpeg,image/png,image/bmp,image/tiff,image/webp,.dwg,.dxf"
+          accept={ACCEPT}
           onChange={onInputChange}
         />
 
         {status && (
           <div className={`status-card ${status.type}`} style={{ marginTop: 12 }}>
             <span className="status-icon">
-              {status.type === 'success'
-                ? '✅'
-                : status.type === 'error'
-                ? '❌'
+              {status.type === 'error'
+                ? <Icon name="alert" size={16} />
+                : status.type === 'success'
+                ? <Icon name="checkCircle" size={16} />
                 : <div className="spinner" />}
             </span>
             <div className="status-body">
@@ -142,33 +166,27 @@ export default function UploadPanel({ onUploadSuccess, currentStep, detectionErr
             </div>
           </div>
         )}
-
-        {preview && (
-          <div className="preview-container" style={{ marginTop: 14 }}>
-            {isCad
-              ? <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>📐</div>
-              : <img src={preview} alt="Floor plan preview" />}
-            <div className="preview-overlay">
-              <span className="preview-filename">{fileName}</span>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="sidebar-section">
-        <div className="section-label">Build Pipeline</div>
+        <div className="section-label">Progress</div>
         <div className="pipeline">
           {PIPELINE_STEPS.map(s => (
             <div
               key={s.id}
               className={`pipeline-step ${step === s.id ? 'active' : ''} ${step > s.id ? 'done' : ''}`}
             >
-              <div className="step-num">{step > s.id ? '✓' : s.id}</div>
-              <span className="step-text">{s.label}</span>
+              <div className="step-num">{step > s.id ? <Icon name="check" size={13} strokeWidth={2.5} /> : s.id + 1}</div>
+              <span className="step-text">
+                {s.label}
+                <span className="step-hint">{s.hint}</span>
+              </span>
             </div>
           ))}
         </div>
       </div>
     </>
   )
-}
+})
+
+export default UploadPanel

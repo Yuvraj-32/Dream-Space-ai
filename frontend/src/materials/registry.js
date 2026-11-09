@@ -77,10 +77,10 @@ export const MATERIALS = [
     hidden: true,
     maps: null,
     tile: [1, 1],
-    roughness: 0.22,
-    metalness: 0.4,
+    roughness: 0.65,
+    metalness: 0,
     tint: TINT_FULL,
-    defaultColor: '#141824',
+    defaultColor: '#cdc3b5',
     note: 'Default floor finish',
   },
   {

@@ -16,6 +16,8 @@ if (typeof window !== 'undefined') {
   }
 }
 
+import Icon from './Icon'
+import { buildCinematicTour, listEntrances } from './cinematicTour'
 import MaterialSelector from './MaterialSelector'
 import { DEFAULT_MATERIAL_ID, DEFAULT_FLOOR_MATERIAL_ID } from '../materials/registry'
 import {
@@ -53,11 +55,9 @@ function PlaceholderBuilding() {
       <mesh castShadow receiveShadow position={[0, 1, 0]}>
         <boxGeometry args={[2, 2, 2]} />
         <meshStandardMaterial
-          color="#1c2235"
-          roughness={0.4}
-          metalness={0.3}
-          emissive="#6378ff"
-          emissiveIntensity={0.08}
+          color="#e9e3da"
+          roughness={0.8}
+          metalness={0}
         />
       </mesh>
 
@@ -65,10 +65,10 @@ function PlaceholderBuilding() {
       <mesh position={[0, 1, 0]}>
         <boxGeometry args={[2.01, 2.01, 2.01]} />
         <meshBasicMaterial
-          color="#6378ff"
+          color="#b8553a"
           wireframe
           transparent
-          opacity={0.4}
+          opacity={0.25}
         />
       </mesh>
 
@@ -76,27 +76,25 @@ function PlaceholderBuilding() {
       <mesh castShadow position={[0, 2.1, 0]}>
         <boxGeometry args={[2.2, 0.12, 2.2]} />
         <meshStandardMaterial
-          color="#6378ff"
-          roughness={0.3}
-          metalness={0.5}
-          emissive="#6378ff"
-          emissiveIntensity={0.15}
+          color="#b8553a"
+          roughness={0.6}
+          metalness={0}
         />
       </mesh>
 
       {/* Door cutout illusion */}
       <mesh position={[0, 0.5, 1.02]}>
         <planeGeometry args={[0.5, 1]} />
-        <meshBasicMaterial color="#0a0c14" />
+        <meshBasicMaterial color="#5c564d" />
       </mesh>
 
       {/* Window left */}
       <mesh position={[-0.6, 1.2, 1.02]}>
         <planeGeometry args={[0.45, 0.35]} />
         <meshStandardMaterial
-          color="#3dd9c6"
-          emissive="#3dd9c6"
-          emissiveIntensity={0.6}
+          color="#bcd3e0"
+          emissive="#bcd3e0"
+          emissiveIntensity={0.2}
           transparent
           opacity={0.6}
         />
@@ -106,9 +104,9 @@ function PlaceholderBuilding() {
       <mesh position={[0.6, 1.2, 1.02]}>
         <planeGeometry args={[0.45, 0.35]} />
         <meshStandardMaterial
-          color="#3dd9c6"
-          emissive="#3dd9c6"
-          emissiveIntensity={0.6}
+          color="#bcd3e0"
+          emissive="#bcd3e0"
+          emissiveIntensity={0.2}
           transparent
           opacity={0.6}
         />
@@ -123,7 +121,7 @@ function SceneLabel({ text }) {
     <Text
       position={[0, 3.2, 0]}
       fontSize={0.22}
-      color="#8892b0"
+      color="#8c8478"
       anchorX="center"
       anchorY="middle"
     >
@@ -143,7 +141,7 @@ function GroundGlow() {
   return (
     <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
       <circleGeometry args={[4, 64]} />
-      <meshBasicMaterial color="#6378ff" transparent opacity={0.08} />
+      <meshBasicMaterial color="#b8553a" transparent opacity={0.08} />
     </mesh>
   )
 }
@@ -263,7 +261,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
               rotation={[0, -angle, 0]}
             >
               <boxGeometry args={[seg_len + 0.005, wall_height + 0.005, wall_thickness + 0.005]} />
-              <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+              <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
             </mesh>
           )
         }
@@ -301,7 +299,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
                 rotation={[0, -angle, 0]}
               >
                 <boxGeometry args={[seg_len + 0.005, lintel_h + 0.005, wall_thickness + 0.005]} />
-                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
               </mesh>
             )
           }
@@ -379,7 +377,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
                 rotation={[0, -angle, 0]}
               >
                 <boxGeometry args={[seg_len + 0.005, window_sill + 0.005, wall_thickness + 0.005]} />
-                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
               </mesh>
             )
           }
@@ -408,7 +406,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
                 rotation={[0, -angle, 0]}
               >
                 <boxGeometry args={[seg_len + 0.005, lintel_h + 0.005, wall_thickness + 0.005]} />
-                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
               </mesh>
             )
           }
@@ -465,7 +463,7 @@ function Walls3D({ walls, openings, cx, cy, scale, wallHeight, onSelectWall, sel
             rotation={[0, -angle, 0]}
           >
             <boxGeometry args={[seg_len + 0.005, wall_height + 0.005, wall_thickness + 0.005]} />
-            <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+            <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
           </mesh>
         )
       }
@@ -572,7 +570,7 @@ function RoomFloors({ rooms, cx, cy, scale, onSelectRoom, selectedSurface, surfa
             {isSelected && (
               <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.0025, 0]}>
                 <shapeGeometry args={[shape]} />
-                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.35} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.35} transparent />
               </mesh>
             )}
           </group>
@@ -696,115 +694,6 @@ function PlayerController({ walls, openings, cx, cy, scale, rooms, active }) {
   return <PointerLockControls />
 }
 
-/* ─── Cinematic Tour: keyframe path builder ─────────────────────
- * Produces an ordered list of camera keyframes:
- *   - a "drone-in" entry through an exterior door,
- *   - for each room: travel to its center then a slow 360° reveal,
- *   - doorway threading between rooms (segments pass THROUGH door
- *     positions, so the camera never crosses a wall),
- *   - an exit back out through a door.
- * Falls back to eased room-center visits if no doors were detected.
- */
-function buildCinematicTour(detection, confirmedLayout, cx, cy, scale) {
-  const rooms = detection?.rooms || []
-  if (rooms.length === 0) return []
-
-  const EYE = 1.6
-  const toWorld = (ix, iy) => new THREE.Vector3((ix - cx) * scale, EYE, (iy - cy) * scale)
-
-  // Rooms in world space with a display label.
-  const R = rooms.map(r => {
-    const center = r.centroid
-      ? toWorld(r.centroid.x, r.centroid.y)
-      : toWorld(r.bbox.x + r.bbox.w / 2, r.bbox.y + r.bbox.h / 2)
-    const dims = r.label_dim
-      || (r.computed_dim_ft ? `${r.computed_dim_ft[0]} × ${r.computed_dim_ft[1]} ft` : '')
-    const name = (r.type && r.type !== 'undefined')
-      ? r.type.replace(/_/g, ' ').toUpperCase() : 'ROOM'
-    return { center, name, dims }
-  })
-
-  // Doors in world space (prefer the user-edited layout).
-  const doors = (confirmedLayout?.openings || detection?.openings || [])
-    .filter(o => o.type === 'door')
-    .map(o => toWorld(o.x, o.y))
-
-  // Building center = mean room center (for "outward" direction at doors).
-  const bc = new THREE.Vector3()
-  R.forEach(r => bc.add(r.center))
-  bc.multiplyScalar(1 / R.length)
-
-  const nearestDoor = (p) => {
-    let best = null, bd = Infinity
-    for (const d of doors) { const dd = d.distanceTo(p); if (dd < bd) { bd = dd; best = d } }
-    return best
-  }
-  const outward = (p) => new THREE.Vector3().subVectors(p, bc).setY(0).normalize()
-
-  // Order rooms: start from the room furthest from centre (likely near an
-  // entrance), then nearest-neighbour chain for a spatially smooth path.
-  const order = []
-  const used = new Array(R.length).fill(false)
-  let startIdx = 0, far = -1
-  R.forEach((r, i) => { const d = r.center.distanceTo(bc); if (d > far) { far = d; startIdx = i } })
-  order.push(startIdx); used[startIdx] = true
-  while (order.length < R.length) {
-    const last = R[order[order.length - 1]].center
-    let ni = -1, nd = Infinity
-    R.forEach((r, i) => { if (!used[i]) { const d = r.center.distanceTo(last); if (d < nd) { nd = d; ni = i } } })
-    if (ni < 0) break
-    order.push(ni); used[ni] = true
-  }
-
-  // ── Calm, constant-speed choreography ─────────────────────────
-  // For each room in order: come to its door → glide to the centre → slow
-  // 360° reveal → return to the door → move on to the next room's door.
-  // Durations scale with distance so the whole tour moves at one gentle pace.
-  const SPEED = 1.25          // metres / second — a slow, calm glide
-  const REVEAL_DUR = 6.5      // seconds for a full 360° room reveal
-  const frames = []
-  let cursor = null
-  const travel = (target, lookAt, p0 = null) => {
-    const from = p0 || cursor
-    const dur = from ? Math.max(1.6, from.distanceTo(target) / SPEED) : 2.8
-    frames.push({ kind: 'travel', p0, p1: target.clone(), dur, lookAt: (lookAt || target).clone() })
-    cursor = target.clone()
-  }
-
-  const STEP = 2.0            // metres — a few steps into the hall after a room
-
-  const first = R[order[0]]
-  const entry0 = nearestDoor(first.center) || first.center.clone()
-  const droneOut = entry0.clone().add(outward(entry0).multiplyScalar(2.6))
-  droneOut.y = 3.6
-  // Drone-in: descend from just outside the entry door, looking into the room.
-  travel(entry0, first.center, droneOut)
-
-  for (let k = 0; k < order.length; k++) {
-    const room = R[order[k]]
-    const door = nearestDoor(room.center) || room.center.clone()
-    if (k > 0) travel(door, room.center)      // hallway → this room's door
-    travel(room.center, room.center)          // door → room centre
-    frames.push({ kind: 'reveal', pos: room.center.clone(), dur: REVEAL_DUR, name: room.name, dims: room.dims })
-    cursor = room.center.clone()
-    // Leave: glide OUT through the door (the centre→ahead line passes through
-    // it) and take a few steps into the hall, so we don't jump straight to the
-    // next room — it reads like a person stepping out and walking on.
-    const outDir = new THREE.Vector3().subVectors(door, room.center).setY(0)
-    if (outDir.lengthSq() < 1e-4) outDir.copy(outward(door))
-    outDir.normalize()
-    const ahead = door.clone().add(outDir.multiplyScalar(STEP))
-    ahead.y = EYE
-    travel(ahead, ahead)                      // centre → through door → into the hall
-  }
-
-  // Exit: from where we ended up, drift back outside.
-  const exitOut = cursor.clone().add(outward(cursor).multiplyScalar(2.8))
-  exitOut.y = 3.6
-  travel(exitOut, bc)
-  return frames
-}
-
 /* ─── Cinematic Tour Controller ────────────────────────────── */
 function CinematicController({ tour, active, onComplete, onCaption }) {
   const { camera } = useThree()
@@ -838,9 +727,25 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
     if (t.current === 0 && !started.current) {
       p0.current.copy(f.p0 || camera.position)
       if (f.p0) camera.position.copy(f.p0)
+      if (f.kind === 'path') {
+        // Cumulative lengths so the walk moves at one even pace along the route.
+        const lens = [0]
+        for (let k = 1; k < f.points.length; k++) lens.push(lens[k - 1] + f.points[k].distanceTo(f.points[k - 1]))
+        f.lens = lens
+        camera.position.copy(f.points[0])
+        camera.getWorldDirection(lookDir.current)   // carry on from the current heading
+      }
       if (f.kind === 'reveal') {
         camera.getWorldDirection(lookDir.current)
         revealYaw.current = Math.atan2(lookDir.current.x, lookDir.current.z)
+        // Survey the room and come to rest on its best view. If that view is
+        // already almost straight ahead, look all the way round first.
+        if (typeof f.yaw === 'number') {
+          const toBest = Math.atan2(Math.sin(f.yaw - revealYaw.current), Math.cos(f.yaw - revealYaw.current))
+          f.sweep = Math.abs(toBest) < 1.2 ? toBest + (toBest >= 0 ? 1 : -1) * Math.PI * 2 : toBest
+        } else {
+          f.sweep = Math.PI * 2
+        }
         onCaption?.({ name: f.name, dims: f.dims })
       }
       started.current = true
@@ -857,11 +762,31 @@ function CinematicController({ tour, active, onComplete, onCaption }) {
         lookDir.current.lerp(desired, 0.05).normalize()   // gentle, calm turns
       }
       camera.lookAt(new THREE.Vector3().addVectors(camera.position, lookDir.current))
+    } else if (f.kind === 'path') {
+      const total = f.lens[f.lens.length - 1]
+      const at = (d) => {
+        d = Math.max(0, Math.min(total, d))
+        let k = 1
+        while (k < f.lens.length - 1 && f.lens[k] < d) k++
+        const seg = f.lens[k] - f.lens[k - 1] || 1
+        return new THREE.Vector3().lerpVectors(f.points[k - 1], f.points[k], (d - f.lens[k - 1]) / seg)
+      }
+      // Ease only at the start and end of the whole walk, not at every corner.
+      const d = total * smooth(Math.min(t.current, 1))
+      camera.position.copy(at(d))
+      // Look a little way ahead along the route, the way a person walks.
+      const desired = new THREE.Vector3().subVectors(at(d + 1.2), camera.position).setY(0)
+      if (desired.lengthSq() > 1e-4) {
+        desired.normalize()
+        lookDir.current.lerp(desired, 0.06).normalize()
+      }
+      camera.lookAt(new THREE.Vector3().addVectors(camera.position, lookDir.current))
     } else if (f.kind === 'reveal') {
       camera.position.copy(f.pos)
-      const yaw = revealYaw.current + e * Math.PI * 2
+      const yaw = revealYaw.current + e * (f.sweep ?? Math.PI * 2)
       const dir = new THREE.Vector3(Math.sin(yaw), -0.12, Math.cos(yaw)) // gentle look-down surveys the room
       camera.lookAt(new THREE.Vector3().addVectors(f.pos, dir))
+      lookDir.current.copy(dir).normalize()
     }
 
     if (t.current >= 1) {
@@ -1051,9 +976,16 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   }, [surfaceCustomizations])
 
   // Build the cinematic tour keyframes (door-aware path + room reveals)
+  // Doors the guided tour can start from (best guess first); the user can override.
+  const [tourEntranceId, setTourEntranceId] = useState(null)
+  const tourEntrances = useMemo(
+    () => (confirmedLayout ? listEntrances(detection, confirmedLayout, scale) : []),
+    [detection, confirmedLayout, scale]
+  )
+  useEffect(() => { setTourEntranceId(null) }, [confirmedLayout])
   const cinematicTour = useMemo(
-    () => buildCinematicTour(detection, confirmedLayout, cx, cy, scale),
-    [detection, confirmedLayout, cx, cy, scale]
+    () => buildCinematicTour(detection, confirmedLayout, cx, cy, scale, { entranceId: tourEntranceId }),
+    [detection, confirmedLayout, cx, cy, scale, tourEntranceId]
   )
 
   function handleCustomizationChange(customization) {
@@ -1111,128 +1043,81 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
       
-      {/* Regular HUD overlay */}
+      {/* View controls */}
       {confirmedLayout && !showcaseMode && (
-        <div style={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          zIndex: 10,
-          background: 'rgba(10, 12, 20, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: 8,
-          padding: '12px 16px',
-          color: '#ffffff',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          fontFamily: 'Inter, sans-serif'
-        }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: '#f3f4f6', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>🧊</span> 3D Reconstructed Space
+        <div className="scene-panel" style={{ top: 16, left: 16, width: 280 }}>
+          <div className="scene-panel-title">
+            <Icon name="cube" size={16} /> 3D model
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setIsWalkthrough(false)}
-              style={{
-                background: !isWalkthrough ? '#6378ff' : '#1c2235',
-                color: '#ffffff',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: 11,
-                transition: 'background 0.2s'
-              }}
-            >
-              🛸 Orbit View
+          <div className="segmented" role="group" aria-label="Camera mode">
+            <button className={!isWalkthrough ? 'active' : ''} onClick={() => setIsWalkthrough(false)}>
+              <Icon name="orbit" size={14} /> Orbit
             </button>
-            <button
-              onClick={() => setIsWalkthrough(true)}
-              style={{
-                background: isWalkthrough ? '#3dd9c6' : '#1c2235',
-                color: isWalkthrough ? '#0a0c14' : '#ffffff',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: 11,
-                transition: 'background 0.2s'
-              }}
-            >
-              🚶 First-Person walk
+            <button className={isWalkthrough ? 'active' : ''} onClick={() => setIsWalkthrough(true)}>
+              <Icon name="walk" size={14} /> Walk
             </button>
           </div>
 
           {/* Live wall-height slider */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
-              <span style={{ color: '#c7cce0', display: 'flex', alignItems: 'center', gap: 4 }}>📏 Wall height</span>
-              <span style={{ fontWeight: 700, color: '#3dd9c6' }}>
-                {wallHeight.toFixed(2)} m · {(wallHeight * 3.28084).toFixed(1)} ft
-              </span>
+          <div className="slider-field">
+            <div className="slider-field-head">
+              <span>Wall height</span>
+              <b>{wallHeight.toFixed(2)} m · {(wallHeight * 3.28084).toFixed(1)} ft</b>
             </div>
             <input
               type="range" min="2.4" max="4.5" step="0.05"
               value={wallHeight}
               onChange={e => setWallHeight(parseFloat(e.target.value))}
-              style={{ width: '100%', accentColor: '#3dd9c6', cursor: 'pointer' }}
               aria-label="Wall height"
             />
           </div>
 
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: '1.4' }}>
+          {tourEntrances.length > 1 && (
+            <label className="slider-field">
+              <span className="slider-field-head"><span>Guided tour starts at</span></span>
+              <select
+                className="field-select"
+                value={tourEntranceId ?? tourEntrances[0].id}
+                onChange={e => setTourEntranceId(e.target.value)}
+                aria-label="Door the guided tour starts from"
+              >
+                {tourEntrances.map((en, i) => (
+                  <option key={en.id} value={en.id}>{en.label}{i === 0 ? ' (suggested)' : ''}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div className="scene-hint">
             {!isWalkthrough
-              ? 'Click a wall side/floor to customize PBR surface (each side of a wall is independent) · Orbit drag · Drag the slider for live height'
-              : 'Click viewport to capture mouse · WASD to walk · Move mouse to look · Esc to exit'
-            }
+              ? 'Click a wall side or a floor to change its material. Drag to orbit, scroll to zoom.'
+              : 'Click the view to start. Use W A S D to walk and the mouse to look around. Press Esc to stop.'}
           </div>
         </div>
       )}
 
       {/* Doors control panel */}
       {confirmedLayout && !showcaseMode && !isWalkthrough && !isCinematic && (
-        <div style={{
-          position: 'absolute',
-          bottom: 64,
-          right: 16,
-          zIndex: 10,
-          background: 'rgba(10, 12, 20, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: 8,
-          padding: '12px 16px',
-          color: '#ffffff',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          width: 220,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          fontFamily: 'Inter, sans-serif'
-        }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
+        <div className="scene-panel" style={{ bottom: 16, right: 16, width: 230 }}>
+          <label className="check-field">
             <input
               type="checkbox"
               checked={showDoors}
               onChange={e => setShowDoors(e.target.checked)}
-              style={{ accentColor: '#3dd9c6', cursor: 'pointer' }}
             />
-            🚪 Show doors
+            Show doors
           </label>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: showDoors ? 1 : 0.4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
-              <span style={{ color: '#c7cce0' }}>Door opening</span>
-              <span style={{ fontWeight: 700, color: '#3dd9c6' }}>{doorOpenPct}%</span>
+          <div className="slider-field" style={{ opacity: showDoors ? 1 : 0.45 }}>
+            <div className="slider-field-head">
+              <span>Door opening</span>
+              <b>{doorOpenPct}%</b>
             </div>
             <input
               type="range" min="0" max="100" step="5"
               value={doorOpenPct}
               disabled={!showDoors}
               onChange={e => setDoorOpenPct(parseInt(e.target.value, 10))}
-              style={{ width: '100%', accentColor: '#3dd9c6', cursor: showDoors ? 'pointer' : 'not-allowed' }}
               aria-label="Door opening amount"
             />
           </div>
@@ -1242,7 +1127,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
       {/* Showcase HUD Overlay */}
       {confirmedLayout && showcaseMode && (
         <div className="showcase-hud">
-          <span className="showcase-title-badge">DREAMSPACE PRESENTATION</span>
+          <span className="showcase-title-badge"><Icon name="present" size={15} /> Presentation</span>
           <button
             className={`hud-btn ${isWalkthrough ? 'active' : ''}`}
             onClick={() => {
@@ -1250,7 +1135,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               setIsCinematic(false)
             }}
           >
-            🚶 Walkthrough
+            <Icon name="walk" size={15} /> Walk through
           </button>
           {cinematicTour.length > 0 && (
             <button
@@ -1260,7 +1145,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
                 setIsWalkthrough(false)
               }}
             >
-              🎬 Cinematic Tour
+              <Icon name="play" size={14} /> Guided tour
             </button>
           )}
           <button
@@ -1271,7 +1156,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               setShowcaseMode(false)
             }}
           >
-            Exit Showcase
+            <Icon name="x" size={15} /> Exit
           </button>
         </div>
       )}
@@ -1279,7 +1164,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
       {/* Cinematic lower-third caption (room name + real dimensions) */}
       {isCinematic && cineCaption && (
         <div className="cine-caption">
-          <div className="cine-room-name">{cineCaption.name}</div>
+          {cineCaption.name && <div className="cine-room-name">{cineCaption.name}</div>}
           {cineCaption.dims && <div className="cine-room-dims">{cineCaption.dims}</div>}
         </div>
       )}
@@ -1321,12 +1206,12 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
           shadow-bias={-0.0001}
           color="#ffffff"
         />
-        <pointLight position={[-6, 4, -6]} intensity={0.4} color="#6378ff" />
-        <pointLight position={[6, 3, 6]} intensity={0.3} color="#3dd9c6" />
+        <pointLight position={[-6, 4, -6]} intensity={0.35} color="#fff1e6" />
+        <pointLight position={[6, 3, 6]} intensity={0.25} color="#ffffff" />
 
         {/* Environment / Fog — near/far track the building so a large plan
             isn't swallowed by fog and a small one isn't left flat. */}
-        <fog attach="fog" args={['#0a0c14', span * 1.2 + 6, span * 4 + 20]} />
+        <fog attach="fog" args={['#f4f1ec', span * 1.2 + 6, span * 4 + 20]} />
 
         {/* Render building or placeholder */}
         {confirmedLayout ? (
@@ -1343,7 +1228,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
               selectedSurface={selectedSurface}
               surfaceCustomizations={surfaceCustomizations}
               showDoors={showDoors}
-              doorOpenPct={doorOpenPct}
+              doorOpenPct={isCinematic ? 100 : doorOpenPct}   // the tour walks through doorways, so open them
             />
 
             <Floor3D
@@ -1358,7 +1243,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
             {selectedSurface?.type === 'floor' && !showcaseMode && (
               <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
                 <planeGeometry args={[floor_w + 0.01, floor_h + 0.01]} />
-                <meshBasicMaterial color="#3dd9c6" wireframe opacity={0.25} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.25} transparent />
               </mesh>
             )}
 
@@ -1383,7 +1268,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
             {!isWalkthrough && !isCinematic && (
               <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
                 <planeGeometry args={[floor_w + 0.1, floor_h + 0.1]} />
-                <meshBasicMaterial color="#6378ff" wireframe opacity={0.15} transparent />
+                <meshBasicMaterial color="#b8553a" wireframe opacity={0.15} transparent />
               </mesh>
             )}
           </group>
@@ -1394,7 +1279,7 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
             <SceneLabel
               text={
                 uploadData
-                  ? 'Confirm layout in 2D Editor to view 3D model'
+                  ? 'Confirm the layout in Edit to build the 3D model'
                   : 'Upload a floor plan to begin'
               }
             />
@@ -1408,10 +1293,10 @@ export default function SceneCanvas({ uploadData, detection, confirmedLayout, sh
             args={[span * 2, span * 2]}
             cellSize={1}
             cellThickness={0.4}
-            cellColor="#1c2235"
+            cellColor="#e2dcd2"
             sectionSize={4}
             sectionThickness={0.8}
-            sectionColor="#252a45"
+            sectionColor="#cfc6b8"
             fadeDistance={span * 2.5 + 10}
             fadeStrength={1}
             infiniteGrid

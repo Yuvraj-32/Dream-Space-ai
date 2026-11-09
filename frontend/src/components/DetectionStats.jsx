@@ -1,18 +1,20 @@
+import Icon from './Icon'
+
 /**
  * DetectionStats
- * Shows the Phase 1 detection results summary in the sidebar:
- * wall count, room count, opening count, pipeline info.
+ * Sidebar summary of what detection found: counts, scale source, and the
+ * per-room size table.
  */
 export default function DetectionStats({ detection, loading }) {
   if (loading) {
     return (
       <div className="sidebar-section">
-        <div className="section-label">Detection Results</div>
+        <div className="section-label">Detected layout</div>
         <div className="status-card loading">
           <div className="spinner" />
           <div className="status-body">
-            <span className="status-title">Running CV pipeline…</span>
-            <span className="status-detail">Hough lines · contours · gap detection</span>
+            <span className="status-title">Detecting…</span>
+            <span className="status-detail">Finding walls, rooms, doors and windows</span>
           </div>
         </div>
       </div>
@@ -21,113 +23,80 @@ export default function DetectionStats({ detection, loading }) {
 
   if (!detection) return null
 
-  const { walls = [], rooms = [], openings = [], stats = {}, image_size, measurements } = detection
+  const { walls = [], rooms = [], openings = [], stats = {}, measurements } = detection
   const doors   = openings.filter(o => o.type === 'door')
   const windows = openings.filter(o => o.type === 'window')
+  const isCad = stats.engine === 'cad_vector'
   const fmtDim = (d) => (Array.isArray(d) ? `${d[0]} × ${d[1]} ft` : '—')
+  const roomName = (r) => (r.type && r.type !== 'undefined' ? r.type.replace(/_/g, ' ') : 'Unnamed')
+
+  const counts = [
+    { icon: 'wall',   value: walls.length,   label: 'Walls' },
+    { icon: 'room',   value: rooms.length,   label: 'Rooms' },
+    { icon: 'door',   value: doors.length,   label: 'Doors' },
+    { icon: 'window', value: windows.length, label: 'Windows' },
+  ]
 
   return (
     <div className="sidebar-section">
-      <div className="section-label">Detection Results</div>
+      <div className="section-head">
+        <div className="section-label">Detected layout</div>
+        {isCad
+          ? <span className="chip chip-success">From CAD geometry</span>
+          : <span className="chip chip-neutral">From image</span>}
+      </div>
 
-      {/* Summary grid */}
       <div className="detection-grid">
-        <div className="det-card">
-          <span className="det-icon">🧱</span>
-          <span className="det-val">{walls.length}</span>
-          <span className="det-lbl">Walls</span>
-        </div>
-        <div className="det-card">
-          <span className="det-icon">🏠</span>
-          <span className="det-val">{rooms.length}</span>
-          <span className="det-lbl">Rooms</span>
-        </div>
-        <div className="det-card">
-          <span className="det-icon">🚪</span>
-          <span className="det-val">{doors.length}</span>
-          <span className="det-lbl">Doors</span>
-        </div>
-        <div className="det-card">
-          <span className="det-icon">🪟</span>
-          <span className="det-val">{windows.length}</span>
-          <span className="det-lbl">Windows</span>
-        </div>
+        {counts.map(c => (
+          <div className="det-card" key={c.label}>
+            <span className="det-icon"><Icon name={c.icon} size={18} /></span>
+            <span className="det-val">{c.value}</span>
+            <span className="det-lbl">{c.label}</span>
+          </div>
+        ))}
       </div>
 
-      {/* Image info */}
-      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
-        Image: {image_size?.width} × {image_size?.height}px
-        {stats.raw_hough_segments !== undefined && (
-          <> · {stats.raw_hough_segments} raw segments → {stats.merged_walls} merged</>
-        )}
-      </div>
-
-      {/* CAD (DWG/DXF) input: exact vector geometry, not a CV estimate */}
-      {stats.engine === 'cad_vector' && (
-        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          <div><b style={{ color: 'var(--text)' }}>Exact CAD geometry</b> (read from the file, not estimated)</div>
-          {stats.units?.name && <div>Drawing units: {stats.units.name}</div>}
-          {stats.scale_ft_per_px && <div>Scale: 1 px = {(stats.scale_ft_per_px * 12).toFixed(2)} in</div>}
-          {stats.label_dim_check?.rooms_checked > 0 && (
-            <div>
-              Room sizes vs drawing labels: {stats.label_dim_check.median_error_pct}% median error
-              ({stats.label_dim_check.rooms_checked} rooms checked)
+      {(measurements || isCad) && (
+        <div className="meta-list">
+          {measurements?.building_ft && (
+            <div className="meta-row">
+              <span>Building size</span>
+              <span>
+                {measurements.building_ft[0]} × {measurements.building_ft[1]} ft{' '}
+                {stats.scale_source === 'door_width' && (
+                  <span className="chip chip-warning" title="No dimension labels could be read, so the scale is estimated from standard door widths (±10%).">Estimated</span>
+                )}
+                {stats.scale_source === 'dimension_labels' && (
+                  <span className="chip chip-success" title="Scale read from the plan's own printed dimension labels.">Measured</span>
+                )}
+              </span>
             </div>
           )}
-          {(stats.tidy?.fixture_walls_dropped + stats.tidy?.stubs_dropped) > 0 && (
-            <div>
-              Cleaned up: {stats.tidy.fixture_walls_dropped} fixture outlines, {stats.tidy.stubs_dropped} stubs removed
+          {isCad && stats.units?.name && (
+            <div className="meta-row"><span>Drawing units</span><span>{stats.units.name}</span></div>
+          )}
+          {isCad && stats.label_dim_check?.rooms_checked > 0 && (
+            <div className="meta-row">
+              <span>Size check vs labels</span>
+              <span>{stats.label_dim_check.median_error_pct}% off ({stats.label_dim_check.rooms_checked} rooms)</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Real-world measurements. Two sources, and the difference matters:
-          "dimension_labels" was read off the plan; "door_width" is inferred
-          from standard door sizes and is only approximate. */}
-      {measurements && (
-        <div style={{ marginTop: 12 }}>
-          <div className="section-label">Dimensions</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Building: <b>{measurements.building_ft?.[0]} × {measurements.building_ft?.[1]} ft</b>
-            {stats.scale_source === 'door_width' && (
-              <span
-                title="No dimension labels could be read, so the scale is estimated from standard door widths (±10%)."
-                style={{
-                  marginLeft: 6, padding: '1px 6px', borderRadius: 4, fontSize: 10,
-                  fontWeight: 700, letterSpacing: 0.3,
-                  background: 'rgba(255,193,107,0.15)', color: '#ffc16b',
-                }}
-              >
-                ~EST
-              </span>
-            )}
-            {stats.scale_source === 'dimension_labels' && (
-              <span
-                title="Scale read from the plan's own printed dimension labels."
-                style={{
-                  marginLeft: 6, padding: '1px 6px', borderRadius: 4, fontSize: 10,
-                  fontWeight: 700, letterSpacing: 0.3,
-                  background: 'rgba(61,217,198,0.15)', color: '#3dd9c6',
-                }}
-              >
-                MEASURED
-              </span>
-            )}
-          </div>
-          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+      {measurements && rooms.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="section-label" style={{ marginBottom: 4 }}>Rooms</div>
+          <table className="data-table">
             <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
-                <th>Room</th><th>Labeled</th><th>Measured</th><th>Area</th>
-              </tr>
+              <tr><th>Room</th><th>Size</th><th className="num">Area</th></tr>
             </thead>
             <tbody>
               {rooms.map((r) => (
-                <tr key={r.id} style={{ borderTop: '1px solid var(--border, #333)' }}>
-                  <td>{r.type ?? 'room'}</td>
-                  <td>{r.label_dim ?? '—'}</td>
+                <tr key={r.id} title={r.label_dim ? `Printed on plan: ${r.label_dim}` : undefined}>
+                  <td>{roomName(r)}</td>
                   <td>{fmtDim(r.computed_dim_ft)}</td>
-                  <td>{r.area_sqft ? `${r.area_sqft} ft²` : '—'}</td>
+                  <td className="num">{r.area_sqft ? `${Math.round(r.area_sqft)} ft²` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -135,12 +104,11 @@ export default function DetectionStats({ detection, loading }) {
         </div>
       )}
 
-      {/* Pipeline badge */}
-      <div className="status-card success" style={{ marginTop: 10 }}>
-        <span className="status-icon">✅</span>
+      <div className="status-card success" style={{ marginTop: 14 }}>
+        <span className="status-icon"><Icon name="checkCircle" size={16} /></span>
         <div className="status-body">
-          <span className="status-title">Phase 1 complete</span>
-          <span className="status-detail">Ready for 2D editor correction</span>
+          <span className="status-title">Detection complete</span>
+          <span className="status-detail">Check the layout in Edit, then confirm it to build the 3D model.</span>
         </div>
       </div>
     </div>

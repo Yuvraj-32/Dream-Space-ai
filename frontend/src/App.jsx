@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import axios from 'axios'
 import UploadPanel from './components/UploadPanel'
 import SceneCanvas from './components/SceneCanvas'
 import DetectionOverlay from './components/DetectionOverlay'
 import DetectionStats from './components/DetectionStats'
 import FloorPlanEditor from './components/FloorPlanEditor'
+import Icon from './components/Icon'
+import Logo, { LogoMark } from './components/Logo'
 import CadReviewPanel from '@cad/CadReviewPanel'
 import { cadUrl, detectCad, inspectCad } from '@cad/cadApi'
 import CadProgress from '@cad/CadProgress'
@@ -33,7 +35,9 @@ export default function App() {
   const [cadLoading,      setCadLoading]      = useState(false)
   const [cadGenerating,   setCadGenerating]   = useState(false)
   const [cadError,        setCadError]        = useState(null)
-  // 'detect' | 'editor' | '3d'
+  const [welcomeDrag,     setWelcomeDrag]     = useState(false)
+  const uploadRef = useRef(null)
+  // 'cad' | 'detect' | 'editor' | '3d'
 
   async function handleCadUpload(data) {
     setUploadData(data)
@@ -80,22 +84,14 @@ export default function App() {
     setConfirmedLayout(null)
     setDetectionError(null)
     setDetectLoading(true)
-    setDetectStep('File uploaded successfully. Preparing wall detection request…')
+    setDetectStep('Finding walls, rooms, doors and windows…')
     setActiveView('detect')
 
     try {
-      setDetectStep('Sending POST request to /api/detect/' + encodeURIComponent(data.filename) + '…')
-      await new Promise(r => setTimeout(r, 200))
-      
-      setDetectStep('FastAPI backend processing OpenCV pipeline (lines, rooms, openings)…')
       const res = await axios.post(`${API_BASE}/detect/${encodeURIComponent(data.filename)}?engine=${DETECT_ENGINE}&measure=${MEASURE}`)
-      
-      setDetectStep('Response received! Walls: ' + (res.data.walls?.length ?? 0) + '. Parsing data…')
-      await new Promise(r => setTimeout(r, 200))
-      
-      setDetectStep('Initializing 2D layout editor component…')
+      setDetectStep('Preparing the editor…')
       setDetection(res.data)
-      
+
       // Auto-switch to editor once detection is done
       setActiveView('editor')
     } catch (err) {
@@ -111,40 +107,54 @@ export default function App() {
 
   function handleConfirmLayout(layout) {
     setConfirmedLayout(layout)
-    setActiveView('3d')  // jump to 3D preview — Phase 3 will use this layout
+    setActiveView('3d')
   }
 
-  /* ── header status text ── */
-  const headerStatus = detectLoading
-    ? 'Running CV pipeline…'
-    : confirmedLayout
-    ? `Layout confirmed · ${confirmedLayout.walls.length} walls locked`
-    : detection
-    ? `${detection.walls.length} walls detected · Edit and confirm`
-    : 'Upload a floor plan to start'
+  function openFilePicker() {
+    uploadRef.current?.openPicker()
+  }
 
-  /* ── header badge phase ── */
-  const headerPhase = confirmedLayout ? 'Phase 3 Ready' : detection ? 'Phase 2' : 'Phase 1'
+  function onWelcomeDrop(e) {
+    e.preventDefault()
+    setWelcomeDrag(false)
+    uploadRef.current?.handleFile(e.dataTransfer.files[0])
+  }
+
+  /* ── header status ── */
+  const busy = detectLoading || cadLoading || cadGenerating
+  const headerStatus = detectLoading
+    ? 'Detecting walls and rooms…'
+    : cadLoading
+    ? 'Reading the drawing…'
+    : cadGenerating
+    ? 'Building walls from the drawing…'
+    : confirmedLayout
+    ? `Layout confirmed · ${confirmedLayout.walls.length} walls`
+    : detection
+    ? `${detection.walls.length} walls found · review and confirm`
+    : cadInspect
+    ? 'Choose the floor plan to use'
+    : 'No plan loaded'
+
+  const showWelcome = !uploadData && activeView === '3d'
 
   return (
     <div className={`app ${showcaseMode ? 'showcase-mode' : ''}`}>
       {/* ── Header ── */}
       <header className="header">
         <div className="header-logo">
-          <div className="header-logo-icon">🏠</div>
-          <span className="header-logo-text">DreamSpace AI</span>
-          <span className="header-badge">{headerPhase}</span>
+          <Logo size={28} />
         </div>
 
-        {/* View toggle — only show relevant tabs */}
-        <div className="view-toggle">
+        {/* View tabs */}
+        <nav className="view-toggle" aria-label="Views" style={{ visibility: showWelcome ? 'hidden' : 'visible' }}>
           {cadFile && (
             <button
               id="btn-view-cad"
               className={`view-btn ${activeView === 'cad' ? 'active' : ''}`}
               onClick={() => setActiveView('cad')}
             >
-              📐 CAD
+              <Icon name="drawing" size={15} /> Drawing
             </button>
           )}
           <button
@@ -153,7 +163,7 @@ export default function App() {
             onClick={() => setActiveView('detect')}
             disabled={!imageUrl}
           >
-            🔍 Detect
+            <Icon name="scan" size={15} /> Detection
           </button>
           <button
             id="btn-view-editor"
@@ -161,62 +171,53 @@ export default function App() {
             onClick={() => setActiveView('editor')}
             disabled={!detection}
           >
-            ✏️ Editor
+            <Icon name="edit" size={15} /> Edit
           </button>
           <button
             id="btn-view-3d"
             className={`view-btn ${activeView === '3d' ? 'active' : ''}`}
             onClick={() => setActiveView('3d')}
           >
-            🧊 3D
+            <Icon name="cube" size={15} /> 3D
           </button>
+        </nav>
+
+        <div className="header-right">
+          <div className="header-phase">
+            <div className={`phase-dot ${busy ? 'busy' : confirmedLayout ? 'ready' : ''}`} />
+            <span>{headerStatus}</span>
+          </div>
           {confirmedLayout && (
             <button
               id="btn-showcase"
-              className="view-btn"
-              style={{
-                background: 'linear-gradient(135deg, var(--teal), var(--accent))',
-                color: '#fff',
-                marginLeft: 4,
-                boxShadow: '0 2px 8px var(--accent-glow)'
-              }}
+              className="btn btn-dark btn-sm"
               onClick={() => {
                 setActiveView('3d')
                 setShowcaseMode(true)
               }}
             >
-              ✨ Showcase
+              <Icon name="present" size={14} /> Present
             </button>
           )}
-        </div>
-
-        <div className="header-phase">
-          <div className="phase-dot" />
-          <span>{headerStatus}</span>
         </div>
       </header>
 
       {/* ── Main ── */}
-      <main className="main">
-        {/* Sidebar */}
+      <main className={`main ${showWelcome ? 'no-sidebar' : ''}`}>
         <aside className="sidebar">
-          <UploadPanel 
-            onUploadSuccess={handleUploadSuccess} 
-            currentStep={confirmedLayout ? 3 : detection ? 2 : imageUrl ? 1 : 0}
+          <UploadPanel
+            ref={uploadRef}
+            onUploadSuccess={handleUploadSuccess}
+            currentStep={confirmedLayout ? 3 : detection ? 2 : imageUrl || cadFile ? 1 : 0}
             detectionError={detectionError}
           />
           <DetectionStats detection={detection} loading={detectLoading} />
         </aside>
 
-        {/* Canvas area */}
         <section className="canvas-area" aria-label="Preview">
 
           {/* ── CAD review: pick plan, confirm layers/units ── */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: activeView === 'cad' ? 'flex' : 'none',
-            flexDirection: 'column', background: 'var(--bg-deep)',
-          }}>
+          <div className="view-pane" style={{ display: activeView === 'cad' ? 'flex' : 'none', flexDirection: 'column' }}>
             {cadLoading && <CadProgress filename={cadFile?.filename} />}
             {!cadLoading && cadInspect && (
               <CadReviewPanel
@@ -229,52 +230,36 @@ export default function App() {
               />
             )}
             {!cadLoading && !cadInspect && cadError && (
-              <div style={{ margin: 'auto', maxWidth: 520, padding: 20, color: '#ffb4b4', fontSize: 14, lineHeight: 1.5 }}>
-                <b>Couldn't read this CAD file.</b><br />{cadError}
+              <div className="panel-card error" style={{ margin: 'auto', maxWidth: 520 }}>
+                <b>We couldn't read this CAD file.</b><br />{cadError}
               </div>
             )}
           </div>
 
-          {/* ── Detect view: read-only SVG overlay ── */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: activeView === 'detect' ? 'flex' : 'none',
-            alignItems: 'center', justifyContent: 'center',
-            background: 'var(--bg-deep)',
-          }}>
+          {/* ── Detection view: read-only overlay ── */}
+          <div className="view-pane" style={{ display: activeView === 'detect' ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center' }}>
             {imageUrl ? (
               <DetectionOverlay imageUrl={imageUrl} detection={detection} />
             ) : (
               <div className="canvas-empty-state">
-                <span className="canvas-empty-icon">🔍</span>
-                <div className="canvas-empty-title">Detection View</div>
-                <div className="canvas-empty-sub">Upload a floor plan to run CV detection</div>
+                <span className="canvas-empty-icon"><Icon name="scan" size={24} /></span>
+                <div className="canvas-empty-title">Nothing to show yet</div>
+                <div className="canvas-empty-sub">Upload a floor plan and the detected walls, rooms and openings appear here.</div>
               </div>
             )}
             {detectLoading && (
-              <div style={{
-                position: 'absolute', inset: 0,
-                background: 'rgba(10,12,20,0.85)',
-                display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 16,
-              }}>
-                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3 }} />
-                <div style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, textAlign: 'center', padding: '0 20px' }}>
-                  {detectStep}
-                </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Hough lines · contour rooms · gap detection
+              <div className="busy-overlay">
+                <div className="busy-card">
+                  <div className="spinner spinner-lg" />
+                  <div className="busy-title">{detectStep}</div>
+                  <div className="busy-sub">This usually takes 10–20 seconds.</div>
                 </div>
               </div>
             )}
           </div>
 
           {/* ── Editor view: interactive Konva canvas ── */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: activeView === 'editor' ? 'flex' : 'none',
-            flexDirection: 'column',
-          }}>
+          <div className="view-pane" style={{ display: activeView === 'editor' ? 'flex' : 'none', flexDirection: 'column' }}>
             {detection ? (
               <FloorPlanEditor
                 imageUrl={imageUrl}
@@ -283,43 +268,60 @@ export default function App() {
               />
             ) : (
               <div className="canvas-empty-state" style={{ margin: 'auto' }}>
-                <span className="canvas-empty-icon">✏️</span>
-                <div className="canvas-empty-title">2D Editor</div>
-                <div className="canvas-empty-sub">Run detection first to open the editor</div>
+                <span className="canvas-empty-icon"><Icon name="edit" size={24} /></span>
+                <div className="canvas-empty-title">The editor opens after detection</div>
+                <div className="canvas-empty-sub">Upload a floor plan first. You can then fix walls before building the 3D model.</div>
               </div>
             )}
           </div>
 
           {/* ── 3D scene view ── */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: activeView === '3d' ? 'block' : 'none',
-          }}>
-            <SceneCanvas 
-              uploadData={uploadData} 
-              detection={detection} 
-              confirmedLayout={confirmedLayout} 
+          <div className="view-pane" style={{ display: activeView === '3d' ? 'block' : 'none' }}>
+            <SceneCanvas
+              uploadData={uploadData}
+              detection={detection}
+              confirmedLayout={confirmedLayout}
               showcaseMode={showcaseMode}
               setShowcaseMode={setShowcaseMode}
             />
           </div>
 
-          {/* Corner badge */}
-          {activeView !== 'editor' && !showcaseMode && (
-            <div className="canvas-badge" style={{ zIndex: 10 }}>
-              <div className="canvas-badge-dot" />
-              {activeView === 'detect'
-                ? 'OpenCV · Hough Lines · Contours'
-                : activeView === 'cad'
-                ? 'AutoCAD · exact vector geometry'
-                : 'Three.js · react-three-fiber'}
+          {/* ── First-run welcome ── */}
+          {showWelcome && (
+            <div
+              className={`welcome ${welcomeDrag ? 'dragging' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setWelcomeDrag(true) }}
+              onDragLeave={() => setWelcomeDrag(false)}
+              onDrop={onWelcomeDrop}
+            >
+              <div className="welcome-card">
+                <LogoMark size={44} className="welcome-mark" />
+                <div className="welcome-eyebrow">AI interior design</div>
+                <h1 className="welcome-title">Turn a floor plan into a space your clients can walk through</h1>
+                <p className="welcome-sub">
+                  Upload a plan image or an AutoCAD drawing. DreamSpace finds the walls, rooms, doors and
+                  windows, lets you correct them, and builds a 3D model you can finish with real materials.
+                </p>
+                <div className="welcome-steps">
+                  <div className="welcome-step"><Icon name="upload" size={18} /><b>Upload</b>JPG, PNG or AutoCAD DWG/DXF</div>
+                  <div className="welcome-step"><Icon name="edit" size={18} /><b>Review</b>Check and fix the detected walls</div>
+                  <div className="welcome-step"><Icon name="cube" size={18} /><b>Explore</b>Apply materials and walk through</div>
+                </div>
+                <div className="welcome-actions">
+                  <button className="btn btn-primary" onClick={openFilePicker}>
+                    <Icon name="upload" size={15} /> Upload floor plan
+                  </button>
+                  <span className="welcome-note">or drag and drop it anywhere on this page</span>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Bottom badge when layout confirmed */}
+          {/* Status pill after confirmation */}
           {confirmedLayout && activeView === '3d' && !showcaseMode && (
-            <div className="canvas-badge" style={{ top: 'auto', bottom: 16, zIndex: 10 }}>
-              ✅ {confirmedLayout.walls.length} walls confirmed · Phase 3 ready
+            <div className="canvas-badge" style={{ top: 'auto', bottom: 16, right: 'auto', left: 16, zIndex: 10 }}>
+              <div className="canvas-badge-dot" />
+              {confirmedLayout.walls.length} walls · {confirmedLayout.openings?.length ?? 0} openings
             </div>
           )}
         </section>

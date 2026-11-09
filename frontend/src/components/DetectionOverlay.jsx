@@ -56,7 +56,7 @@ export default function DetectionOverlay({ imageUrl, detection }) {
             key={wall.id}
             x1={wall.x1} y1={wall.y1}
             x2={wall.x2} y2={wall.y2}
-            stroke="#6378ff"
+            stroke="#b8553a"
             strokeWidth="3"
             strokeLinecap="round"
             filter="url(#wall-glow)"
@@ -67,8 +67,8 @@ export default function DetectionOverlay({ imageUrl, detection }) {
         {/* Wall endpoint dots */}
         {walls.map(wall => (
           <g key={`ep-${wall.id}`}>
-            <circle cx={wall.x1} cy={wall.y1} r="4" fill="#6378ff" opacity="0.8" />
-            <circle cx={wall.x2} cy={wall.y2} r="4" fill="#6378ff" opacity="0.8" />
+            <circle cx={wall.x1} cy={wall.y1} r="4" fill="#b8553a" opacity="0.8" />
+            <circle cx={wall.x2} cy={wall.y2} r="4" fill="#b8553a" opacity="0.8" />
           </g>
         ))}
 
@@ -80,8 +80,8 @@ export default function DetectionOverlay({ imageUrl, detection }) {
               <circle
                 cx={op.x} cy={op.y}
                 r={Math.max(8, wPx / 2)}
-                fill={op.type === 'door' ? 'rgba(61,217,198,0.18)' : 'rgba(255,193,107,0.18)'}
-                stroke={op.type === 'door' ? '#3dd9c6' : '#ffc16b'}
+                fill={op.type === 'door' ? 'rgba(47,125,91,0.16)' : 'rgba(168,101,15,0.16)'}
+                stroke={op.type === 'door' ? '#2f7d5b' : '#a8650f'}
                 strokeWidth="2"
               />
               <text
@@ -89,7 +89,7 @@ export default function DetectionOverlay({ imageUrl, detection }) {
                 y={op.y - Math.max(12, wPx / 2) - 4}
                 textAnchor="middle"
                 fontSize="14"
-                fill={op.type === 'door' ? '#3dd9c6' : '#ffc16b'}
+                fill={op.type === 'door' ? '#2f7d5b' : '#a8650f'}
                 fontFamily="Inter, sans-serif"
               >
                 {op.type === 'door' ? 'D' : 'W'}
